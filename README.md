@@ -8,16 +8,31 @@
 
 Helm.NET provides a .NET client backed by Helm's Go action library. The managed API calls a native library through a small C ABI shim and does not launch the Helm command-line executable.
 
+## Supported platforms
+
+Helm.NET includes native libraries for Windows, Linux, and macOS on both x64 and ARM64:
+
+| Operating system | x64 | ARM64 |
+| --- | --- | --- |
+| Windows | `win-x64` | `win-arm64` |
+| Linux | `linux-x64` | `linux-arm64` |
+| macOS | `osx-x64` | `osx-arm64` |
+
+### Install a chart
+
 ```csharp
 using Helm.NET;
 
 var helm = new HelmClient(new HelmClientOptions { Namespace = "apps" });
+
 helm.AddRepository("bitnami", "https://charts.bitnami.com/bitnami");
+
 helm.UpdateRepositories();
+
 var release = helm.Install("my-release", "bitnami/nginx", createNamespace: true, wait: true);
 ```
 
-List releases as typed records:
+### List releases
 
 ```csharp
 IReadOnlyList<HelmRelease> releases = helm.ListReleases();
