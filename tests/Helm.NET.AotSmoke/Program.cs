@@ -124,9 +124,13 @@ sealed class LocalHelmRepository : IDisposable
 
     public LocalHelmRepository()
     {
-        using var portReservation = new TcpListener(IPAddress.Loopback, 0);
-        portReservation.Start();
-        var port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
+        int port;
+        using (var portReservation = new TcpListener(IPAddress.Loopback, 0))
+        {
+            portReservation.Start();
+            port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
+        }
+
         Url = $"http://127.0.0.1:{port}";
 
         _listener.Prefixes.Add($"{Url}/");
