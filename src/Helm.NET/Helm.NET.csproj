@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <PackageId>Helm.NET</PackageId>
     <Authors>Ivan Josipovic</Authors>
     <Description>Helm for .NET</Description>
@@ -15,10 +16,12 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible>true</IsAotCompatible>
     <VerifyReferenceAotCompatibility>true</VerifyReferenceAotCompatibility>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <HelmVersion>v4.3.0</HelmVersion>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CliWrap" Version="3.10.5" />
     <InternalsVisibleTo Include="Helm.NET.Tests" />
     <AssemblyMetadata Include="HelmVersion" Value="$(HelmVersion)" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />

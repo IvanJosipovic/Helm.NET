@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Helm.NET;
 
 /// <summary>Configures a <see cref="HelmClient"/>.</summary>
@@ -73,6 +75,16 @@ public sealed record HelmListOptions(
     bool AllNamespaces = false,
     string? Filter = null,
     string? Output = null);
+
+/// <summary>A release returned by <c>helm list --output json</c>.</summary>
+public sealed record HelmRelease(
+    string Name,
+    string Namespace,
+    string Revision,
+    string Updated,
+    string Status,
+    string Chart,
+    [property: JsonPropertyName("app_version")] string AppVersion);
 
 /// <summary>The result of a Helm command.</summary>
 /// <param name="ExitCode">The command's process exit code.</param>

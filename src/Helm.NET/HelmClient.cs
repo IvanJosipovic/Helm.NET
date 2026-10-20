@@ -1,4 +1,5 @@
-using System.Diagnostics;
+using CliWrap;
+using CliWrap.Buffered;
 
 namespace Helm.NET;
 
@@ -59,6 +60,38 @@ public sealed class HelmClient
     /// <param name="namespaceName">The namespace containing the release.</param>
     /// <param name="cancellationToken">A token that cancels the command.</param>
     public Task<HelmCommandResult> StatusAsync(string releaseName, string? namespaceName = null, CancellationToken cancellationToken = default) => ExecuteAsync(HelmArgumentBuilder.Status(releaseName, namespaceName), cancellationToken);
+    /// <summary>Rolls a release back to a revision (or its previous revision when revision is zero).</summary>
+    public Task<HelmCommandResult> RollbackAsync(string releaseName, int revision = 0, string? namespaceName = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(HelmCommand.Rollback, AddNamespace(new[] { releaseName, revision.ToString(System.Globalization.CultureInfo.InvariantCulture) }, namespaceName), cancellationToken);
+    /// <summary>Returns release revision history.</summary>
+    public Task<HelmCommandResult> HistoryAsync(string releaseName, string? namespaceName = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(HelmCommand.History, AddNamespace(new[] { releaseName }, namespaceName), cancellationToken);
+    /// <summary>Returns the values applied to a release.</summary>
+    public Task<HelmCommandResult> GetValuesAsync(string releaseName, string? namespaceName = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(HelmCommand.GetValues, AddNamespace(new[] { releaseName }, namespaceName), cancellationToken);
+    /// <summary>Checks a chart for issues.</summary>
+    public Task<HelmCommandResult> LintAsync(string chart, CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.Lint, new[] { chart }, cancellationToken);
+    /// <summary>Renders chart templates locally.</summary>
+    public Task<HelmCommandResult> TemplateAsync(string releaseName, string chart, CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.Template, new[] { releaseName, chart }, cancellationToken);
+    /// <summary>Adds a chart repository.</summary>
+    public Task<HelmCommandResult> AddRepositoryAsync(string name, string url, CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.RepoAdd, new[] { name, url }, cancellationToken);
+    /// <summary>Refreshes chart repository indexes.</summary>
+    public Task<HelmCommandResult> UpdateRepositoriesAsync(CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.RepoUpdate, cancellationToken: cancellationToken);
+    /// <summary>Lists configured chart repositories.</summary>
+    public Task<HelmCommandResult> ListRepositoriesAsync(CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.RepoList, cancellationToken: cancellationToken);
+    /// <summary>Removes a configured chart repository.</summary>
+    public Task<HelmCommandResult> RemoveRepositoryAsync(string name, CancellationToken cancellationToken = default) => ExecuteAsync(HelmCommand.RepoRemove, new[] { name }, cancellationToken);
+    /// <summary>Lists releases as strongly typed records.</summary>
+    public async Task<IReadOnlyList<HelmRelease>> ListReleasesAsync(HelmListOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var value = options ?? new HelmListOptions();
+        var arguments = HelmArgumentBuilder.List(value with { Output = "json" });
+        var json = (await ExecuteAsync(arguments, cancellationToken).ConfigureAwait(false)).StandardOutput;
+        return System.Text.Json.JsonSerializer.Deserialize(json, HelmJsonContext.Default.HelmReleaseArray) ?? [];
+    }
+
+    private static IReadOnlyList<string> AddNamespace(IReadOnlyList<string> arguments, string? namespaceName) =>
+        string.IsNullOrWhiteSpace(namespaceName) ? arguments : arguments.Concat(new[] { "--namespace", namespaceName }).ToArray();
     /// <summary>Gets the installed Helm version.</summary>
     /// <param name="cancellationToken">A token that cancels the command.</param>
     public async Task<string> GetVersionAsync(CancellationToken cancellationToken = default) => (await ExecuteAsync(VersionArguments, cancellationToken).ConfigureAwait(false)).StandardOutput;
@@ -70,40 +103,29 @@ public sealed class HelmClient
     private async Task<HelmCommandResult> ExecuteCoreAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
         if (_executor is not null) return await _executor(arguments, cancellationToken).ConfigureAwait(false);
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _executable,
-            WorkingDirectory = _options.WorkingDirectory ?? Environment.CurrentDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        if (OperatingSystem.IsWindows()) startInfo.KillOnParentExit = true;
-        else if (OperatingSystem.IsLinux()) startInfo.KillOnParentExit = true;
-
-        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
-        using var process = new Process { StartInfo = startInfo };
-        if (_options.Environment is not null) foreach (var pair in _options.Environment) process.StartInfo.EnvironmentVariables[pair.Key] = pair.Value;
-        try { process.Start(); } catch (Exception ex) { throw new HelmCommandException($"Unable to start Helm executable '{_executable}'.", null, null, null, ex); }
         using var timeout = _options.CommandTimeout is null ? null : new CancellationTokenSource(_options.CommandTimeout.Value);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout?.Token ?? CancellationToken.None);
-        var output = process.ReadAllTextAsync(CancellationToken.None);
-        try { await process.WaitForExitAsync(linked.Token).ConfigureAwait(false); }
+        try
+        {
+            var command = Cli.Wrap(_executable)
+                .WithArguments(arguments)
+                .WithWorkingDirectory(_options.WorkingDirectory ?? Environment.CurrentDirectory)
+                .WithValidation(CommandResultValidation.None);
+            if (_options.Environment is not null) command = command.WithEnvironmentVariables(_options.Environment);
+
+            var result = await command.ExecuteBufferedAsync(linked.Token).ConfigureAwait(false);
+            var helmResult = new HelmCommandResult(result.ExitCode, result.StandardOutput, result.StandardError);
+            if (helmResult.ExitCode != 0)
+                throw new HelmCommandException($"Helm command failed with exit code {helmResult.ExitCode}.", helmResult.ExitCode, helmResult.StandardOutput, helmResult.StandardError);
+            return helmResult;
+        }
         catch (OperationCanceledException ex)
         {
-            try
-            {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception killException) when (killException is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-            var (standardOutput, standardError) = await output.ConfigureAwait(false);
-            throw new HelmCommandException("Helm command was cancelled or timed out.", null, standardOutput, standardError, ex);
+            throw new HelmCommandException("Helm command was cancelled or timed out.", null, null, null, ex);
         }
-        var (capturedOutput, capturedError) = await output.ConfigureAwait(false);
-        var result = new HelmCommandResult(process.ExitCode, capturedOutput, capturedError);
-        if (result.ExitCode != 0) throw new HelmCommandException($"Helm command failed with exit code {result.ExitCode}.", result.ExitCode, result.StandardOutput, result.StandardError);
-        return result;
+        catch (Exception ex) when (ex is not HelmCommandException)
+        {
+            throw new HelmCommandException($"Unable to execute Helm executable '{_executable}'.", null, null, null, ex);
+        }
     }
 }
