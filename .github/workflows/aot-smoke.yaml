@@ -15,7 +15,7 @@ jobs:
           - net11.0
         include:
           - rid: win-x64
-            runner: windows-2025
+            runner: windows-latest
             executable_prefix: .\aot-publish-
             executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: win-arm64
@@ -23,19 +23,19 @@ jobs:
             executable_prefix: .\aot-publish-
             executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: linux-x64
-            runner: ubuntu-24.04
+            runner: ubuntu-latest
             executable_prefix: ./aot-publish-
             executable_suffix: /Helm.NET.AotSmoke
           - rid: linux-arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
             executable_prefix: ./aot-publish-
             executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-x64
-            runner: macos-15-intel
+            runner: macos-26-intel
             executable_prefix: ./aot-publish-
             executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-arm64
-            runner: macos-15
+            runner: macos-latest
             executable_prefix: ./aot-publish-
             executable_suffix: /Helm.NET.AotSmoke
 
@@ -66,7 +66,7 @@ jobs:
 
   native-aot-kubernetes:
     name: NativeAOT Helm operations ${{ matrix.framework }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
