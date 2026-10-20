@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1001</WarningsAsErrors>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --config-file $(MSBuildThisFileDirectory)testconfig.json</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+</Project>

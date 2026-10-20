@@ -1,0 +1,78 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabled": true,
+  "timezone": "America/Vancouver",
+  "semanticCommits": "enabled",
+  "assignees": [
+    "@ivanjosipovic"
+  ],
+  "extends": [
+    "config:recommended"
+  ],
+  "platformAutomerge": true,
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true,
+      "matchFileNames": [
+        "global.json"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true,
+      "semanticCommitType": "fix",
+      "matchFileNames": [
+        "src/**"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true,
+      "matchFileNames": [
+        ".github/workflows/**",
+        "tests/**",
+        "benchmarks/**"
+      ]
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "src/Helm.NET/Helm.NET.csproj"
+      ],
+      "automerge": false,
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "helm"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^src\\/Helm\\.NET\\/Helm\\.NET\\.csproj$/"
+      ],
+      "matchStrings": [
+        "<HelmVersion>\\s*(?<currentValue>v?\\d+\\.\\d+\\.\\d+)\\s*</HelmVersion>"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "helm/helm",
+      "versioningTemplate": "semver"
+    }
+  ]
+}
