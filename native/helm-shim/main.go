@@ -248,6 +248,7 @@ func execute(req request) (any, string) {
 			upgrade := action.NewUpgrade(cfg)
 			upgrade.Namespace = req.Namespace
 			upgrade.Timeout = timeout
+			upgrade.WaitStrategy = kube.HookOnlyStrategy
 			if req.Wait {
 				upgrade.WaitStrategy = kube.StatusWatcherStrategy
 			}
@@ -257,6 +258,7 @@ func execute(req request) (any, string) {
 			install.ReleaseName = req.ReleaseName
 			install.Namespace = req.Namespace
 			install.CreateNamespace = req.CreateNamespace
+			install.WaitStrategy = kube.HookOnlyStrategy
 			if req.Wait {
 				install.WaitStrategy = kube.StatusWatcherStrategy
 			}
@@ -305,12 +307,21 @@ func execute(req request) (any, string) {
 	case "rollback":
 		rollback := action.NewRollback(cfg)
 		rollback.Version = req.Revision
+		rollback.WaitStrategy = kube.HookOnlyStrategy
+		if req.Wait {
+			rollback.WaitStrategy = kube.StatusWatcherStrategy
+		}
 		if err := rollback.Run(req.ReleaseName); err != nil {
 			return nil, err.Error()
 		}
 		return map[string]bool{"succeeded": true}, ""
 	case "uninstall":
-		if _, err := action.NewUninstall(cfg).Run(req.ReleaseName); err != nil {
+		uninstall := action.NewUninstall(cfg)
+		uninstall.WaitStrategy = kube.HookOnlyStrategy
+		if req.Wait {
+			uninstall.WaitStrategy = kube.StatusWatcherStrategy
+		}
+		if _, err := uninstall.Run(req.ReleaseName); err != nil {
 			return nil, err.Error()
 		}
 		return map[string]bool{"succeeded": true}, ""
