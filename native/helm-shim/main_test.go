@@ -94,7 +94,12 @@ func TestExecuteListsEmptyRepositories(t *testing.T) {
 }
 
 func TestExecuteHandlesReleaseOperationsWithoutCluster(t *testing.T) {
+	kubeconfig := filepath.Join(t.TempDir(), "invalid-kubeconfig")
+	if err := os.WriteFile(kubeconfig, []byte("clusters: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	baseRequest := request{
+		Kubeconfig:       kubeconfig,
 		RepositoryConfig: filepath.Join(t.TempDir(), "repositories.yaml"),
 		RepositoryCache:  filepath.Join(t.TempDir(), "cache"),
 	}
@@ -103,14 +108,7 @@ func TestExecuteHandlesReleaseOperationsWithoutCluster(t *testing.T) {
 		operation string
 		check     func(*testing.T, any, string)
 	}{
-		{name: "list", operation: "list", check: func(t *testing.T, data any, message string) {
-			if message != "" {
-				t.Fatalf("list failed: %s", message)
-			}
-			if releases, ok := data.([]map[string]any); !ok || len(releases) != 0 {
-				t.Fatalf("expected empty release list, got %#v", data)
-			}
-		}},
+		{name: "list", operation: "list", check: requireActionError},
 		{name: "history", operation: "history", check: requireActionError},
 		{name: "status", operation: "status", check: requireActionError},
 		{name: "rollback", operation: "rollback", check: requireActionError},
@@ -126,6 +124,114 @@ func TestExecuteHandlesReleaseOperationsWithoutCluster(t *testing.T) {
 			test.check(t, data, message)
 		})
 	}
+}
+
+func TestExecuteListsEmptyReleasesInKindCluster(t *testing.T) {
+	if os.Getenv("HELM_SHIM_TEST_CLUSTER") != "true" {
+		t.Skip("requires the Kind cluster configured by go-test CI")
+	}
+
+	data, errorMessage := execute(request{Operation: "list"})
+	if errorMessage != "" {
+		t.Fatalf("list failed: %s", errorMessage)
+	}
+	if releases, ok := data.([]map[string]any); !ok || len(releases) != 0 {
+		t.Fatalf("expected empty release list, got %#v", data)
+	}
+}
+
+func TestExecuteReleaseLifecycleInKindCluster(t *testing.T) {
+	if os.Getenv("HELM_SHIM_TEST_CLUSTER") != "true" {
+		t.Skip("requires the Kind cluster configured by go-test CI")
+	}
+
+	chartDir := filepath.Join(t.TempDir(), "chart")
+	if err := os.MkdirAll(filepath.Join(chartDir, "templates"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"Chart.yaml":               "apiVersion: v2\nname: integration\nversion: 1.0.0\n",
+		"values.yaml":              "setting: initial\n",
+		"templates/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  setting: {{ .Values.setting | quote }}\n",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(chartDir, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const namespace = "helm-shim-integration"
+	const releaseName = "lifecycle"
+	run := func(req request) any {
+		t.Helper()
+		req.Namespace = namespace
+		data, errorMessage := execute(req)
+		if errorMessage != "" {
+			t.Fatalf("%s failed: %s", req.Operation, errorMessage)
+		}
+		return data
+	}
+
+	installed, ok := run(request{
+		Operation: "install", ReleaseName: releaseName, Chart: chartDir,
+		Values: map[string]any{"setting": "installed"}, CreateNamespace: true,
+	}).(map[string]any)
+	if !ok || installed["name"] != releaseName || installed["namespace"] != namespace {
+		t.Fatalf("unexpected installed release: %#v", installed)
+	}
+
+	listed, ok := run(request{Operation: "list", AllNamespaces: true}).([]map[string]any)
+	if !ok || !containsRelease(listed, releaseName) {
+		t.Fatalf("installed release missing from list: %#v", listed)
+	}
+
+	status, ok := run(request{Operation: "status", ReleaseName: releaseName}).(map[string]any)
+	if !ok || status["status"] != "deployed" {
+		t.Fatalf("unexpected release status: %#v", status)
+	}
+
+	values, ok := run(request{Operation: "values", ReleaseName: releaseName}).(map[string]any)
+	if !ok || values["setting"] != "installed" {
+		t.Fatalf("unexpected installed values: %#v", values)
+	}
+
+	upgraded, ok := run(request{
+		Operation: "upgrade", ReleaseName: releaseName, Chart: chartDir,
+		Values: map[string]any{"setting": "upgraded"},
+	}).(map[string]any)
+	if !ok || upgraded["revision"] != "2" {
+		t.Fatalf("unexpected upgraded release: %#v", upgraded)
+	}
+
+	history, ok := run(request{Operation: "history", ReleaseName: releaseName}).([]map[string]any)
+	if !ok || len(history) != 2 {
+		t.Fatalf("expected two release revisions, got %#v", history)
+	}
+
+	run(request{Operation: "rollback", ReleaseName: releaseName, Revision: 1})
+	rolledBack, ok := run(request{Operation: "status", ReleaseName: releaseName}).(map[string]any)
+	if !ok || rolledBack["revision"] != "3" {
+		t.Fatalf("unexpected release after rollback: %#v", rolledBack)
+	}
+	values, ok = run(request{Operation: "values", ReleaseName: releaseName}).(map[string]any)
+	if !ok || values["setting"] != "installed" {
+		t.Fatalf("rollback did not restore revision 1 values: %#v", values)
+	}
+
+	run(request{Operation: "uninstall", ReleaseName: releaseName})
+	listed, ok = run(request{Operation: "list", AllNamespaces: true}).([]map[string]any)
+	if !ok || containsRelease(listed, releaseName) {
+		t.Fatalf("uninstalled release remains in list: %#v", listed)
+	}
+}
+
+func containsRelease(releases []map[string]any, name string) bool {
+	for _, release := range releases {
+		if release["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestExecuteInstallAndUpgradeRejectUnlocatableCharts(t *testing.T) {
