@@ -1,231 +1,341 @@
-namespace Helm.NET.Tests;
-
+using System.Text;
+using System.Text.Json;
 using System.Runtime.InteropServices;
+
+namespace Helm.NET.Tests;
 
 public sealed class HelmClientTests
 {
-    private static string[] Args(params string[] values) => values;
-    private static readonly (HelmCommand Command, string[] Prefix)[] _s_helmCommands =
-    [
-        (HelmCommand.CompletionBash, Args("completion", "bash")),
-        (HelmCommand.CompletionFish, Args("completion", "fish")),
-        (HelmCommand.CompletionPowerShell, Args("completion", "powershell")),
-        (HelmCommand.CompletionZsh, Args("completion", "zsh")),
-        (HelmCommand.Create, Args("create")),
-        (HelmCommand.DependencyBuild, Args("dependency", "build")),
-        (HelmCommand.DependencyList, Args("dependency", "list")),
-        (HelmCommand.DependencyUpdate, Args("dependency", "update")),
-        (HelmCommand.Env, Args("env")),
-        (HelmCommand.GetAll, Args("get", "all")),
-        (HelmCommand.GetHooks, Args("get", "hooks")),
-        (HelmCommand.GetManifest, Args("get", "manifest")),
-        (HelmCommand.GetMetadata, Args("get", "metadata")),
-        (HelmCommand.GetNotes, Args("get", "notes")),
-        (HelmCommand.GetValues, Args("get", "values")),
-        (HelmCommand.History, Args("history")),
-        (HelmCommand.Install, Args("install")),
-        (HelmCommand.Lint, Args("lint")),
-        (HelmCommand.List, Args("list")),
-        (HelmCommand.Package, Args("package")),
-        (HelmCommand.PluginInstall, Args("plugin", "install")),
-        (HelmCommand.PluginList, Args("plugin", "list")),
-        (HelmCommand.PluginPackage, Args("plugin", "package")),
-        (HelmCommand.PluginUninstall, Args("plugin", "uninstall")),
-        (HelmCommand.PluginUpdate, Args("plugin", "update")),
-        (HelmCommand.PluginVerify, Args("plugin", "verify")),
-        (HelmCommand.Pull, Args("pull")),
-        (HelmCommand.Push, Args("push")),
-        (HelmCommand.RegistryLogin, Args("registry", "login")),
-        (HelmCommand.RegistryLogout, Args("registry", "logout")),
-        (HelmCommand.RepoAdd, Args("repo", "add")),
-        (HelmCommand.RepoIndex, Args("repo", "index")),
-        (HelmCommand.RepoList, Args("repo", "list")),
-        (HelmCommand.RepoRemove, Args("repo", "remove")),
-        (HelmCommand.RepoUpdate, Args("repo", "update")),
-        (HelmCommand.Rollback, Args("rollback")),
-        (HelmCommand.SearchHub, Args("search", "hub")),
-        (HelmCommand.SearchRepository, Args("search", "repo")),
-        (HelmCommand.ShowAll, Args("show", "all")),
-        (HelmCommand.ShowChart, Args("show", "chart")),
-        (HelmCommand.ShowCrds, Args("show", "crds")),
-        (HelmCommand.ShowReadme, Args("show", "readme")),
-        (HelmCommand.ShowValues, Args("show", "values")),
-        (HelmCommand.Status, Args("status")),
-        (HelmCommand.Template, Args("template")),
-        (HelmCommand.Test, Args("test")),
-        (HelmCommand.Uninstall, Args("uninstall")),
-        (HelmCommand.Upgrade, Args("upgrade")),
-        (HelmCommand.Verify, Args("verify")),
-        (HelmCommand.Version, Args("version")),
-        (HelmCommand.Help, Args("help"))
-    ];
-    private static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-    private static string ShellPath => IsWindows
-        ? Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe"
-        : "/bin/sh";
-
-    private static string[] ShellArguments(string command) => IsWindows
-        ? Args("/c", command)
-        : Args("-c", command);
+    private const string ReleaseJson = """
+        {"name":"web","namespace":"apps","revision":"3","updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","app_version":"2.0"}
+        """;
 
     [Fact]
-    public async Task TypedCommandOverloadCoversEveryHelmCommandAndPreservesArguments()
+    public void ConstructorUsesDefaultOptions()
     {
-        Enum.GetValues<HelmCommand>().Length.ShouldBe(_s_helmCommands.Length);
-
-        foreach (var (command, prefix) in _s_helmCommands)
-        {
-            IReadOnlyList<string>? actual = null;
-            var client = new HelmClient(new HelmClientOptions { UseBundledExecutable = false }, (arguments, _) =>
-            {
-                actual = arguments;
-                return Task.FromResult(new HelmCommandResult(0, "", ""));
-            });
-
-            await client.ExecuteAsync(command, Args("operand with spaces", "--flag", "value with spaces"));
-
-            actual.ShouldBe(prefix.Concat(Args("operand with spaces", "--flag", "value with spaces")));
-        }
+        var client = new HelmClient();
+        client.ShouldNotBeNull();
     }
 
     [Fact]
-    public async Task TypedCommandOverloadRejectsUnknownCommand()
+    public void ListReleasesUsesDefaultsAndMapsRecords()
     {
-        var client = new HelmClient(new HelmClientOptions { UseBundledExecutable = false }, (_, _) =>
-            Task.FromResult(new HelmCommandResult(0, "", "")));
+        var client = CreateClient("{\"data\":[" + ReleaseJson + "]}", out var request);
 
-        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => client.ExecuteAsync((HelmCommand)int.MaxValue));
+        var releases = client.ListReleases();
+
+        request().GetProperty("operation").GetString().ShouldBe("list");
+        request().GetProperty("namespace").GetString().ShouldBe("default");
+        releases.ShouldHaveSingleItem().ShouldBe(new HelmRelease("web", "apps", "3", "2026-01-02T03:04:05Z", "deployed", "nginx-1.2.3", "2.0"));
     }
 
     [Fact]
-    public async Task TypedCommandOverloadSupportsCommandsWithoutArguments()
+    public void ListReleasesCanSelectAllNamespacesAndFilter()
     {
-        IReadOnlyList<string>? actual = null;
-        var client = new HelmClient(new HelmClientOptions { UseBundledExecutable = false }, (arguments, _) =>
+        var client = CreateClient("{\"data\":[]}", out var request);
+
+        client.ListReleases(allNamespaces: true, filter: "^web$");
+
+        var json = request();
+        json.GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
+        json.GetProperty("filter").GetString().ShouldBe("^web$");
+    }
+
+    [Fact]
+    public void TemplateSerializesValuesAndReturnsManifest()
+    {
+        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
+        var values = new Dictionary<string, object?> { ["replicas"] = 2 };
+
+        client.Template("web", "./chart", ["prod.yaml"], values).ShouldBe("rendered yaml");
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("template");
+        json.GetProperty("releaseName").GetString().ShouldBe("web");
+        json.GetProperty("chart").GetString().ShouldBe("./chart");
+        json.GetProperty("valuesFiles")[0].GetString().ShouldBe("prod.yaml");
+        json.GetProperty("values").GetProperty("replicas").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void InstallSerializesAllOptionsAndMapsRelease()
+    {
+        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
+        var release = client.Install("web", "chart", ["values.yaml"], new Dictionary<string, object?> { ["key"] = "value" }, createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(12.5));
+
+        release.Name.ShouldBe("web");
+        release.AppVersion.ShouldBe("2.0");
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("install");
+        json.GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
+        json.GetProperty("wait").GetBoolean().ShouldBeTrue();
+        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(12500);
+    }
+
+    [Fact]
+    public void UpgradeSerializesInstallIfMissing()
+    {
+        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
+
+        client.Upgrade("web", "chart", installIfMissing: true);
+
+        request().GetProperty("installIfMissing").GetBoolean().ShouldBeTrue();
+        request().GetProperty("operation").GetString().ShouldBe("upgrade");
+    }
+
+    [Fact]
+    public void StatusMapsRelease()
+    {
+        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
+
+        client.Status("web").Status.ShouldBe("deployed");
+
+        request().GetProperty("releaseName").GetString().ShouldBe("web");
+        request().GetProperty("operation").GetString().ShouldBe("status");
+    }
+
+    [Fact]
+    public void HistoryMapsReleases()
+    {
+        var client = CreateClient("{\"data\":[" + ReleaseJson + "]}", out var request);
+
+        client.History("web").ShouldHaveSingleItem().Name.ShouldBe("web");
+
+        request().GetProperty("operation").GetString().ShouldBe("history");
+        request().GetProperty("releaseName").GetString().ShouldBe("web");
+    }
+
+    [Fact]
+    public void RollbackSendsRevision()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.Rollback("web", 2);
+
+        request().GetProperty("operation").GetString().ShouldBe("rollback");
+        request().GetProperty("revision").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void UninstallSendsReleaseName()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.Uninstall("web");
+
+        request().GetProperty("operation").GetString().ShouldBe("uninstall");
+        request().GetProperty("releaseName").GetString().ShouldBe("web");
+    }
+
+    [Fact]
+    public void GetValuesMapsJsonValuesAndUsesConfiguredNamespace()
+    {
+        var client = CreateClient("{\"data\":{\"replicas\":3,\"enabled\":true}}", out var request,
+            new HelmClientOptions { Namespace = "apps" });
+
+        var values = client.GetValues("web");
+
+        values["replicas"].GetInt32().ShouldBe(3);
+        values["enabled"].GetBoolean().ShouldBeTrue();
+        request().GetProperty("namespace").GetString().ShouldBe("apps");
+        request().GetProperty("operation").GetString().ShouldBe("values");
+    }
+
+    [Fact]
+    public void ListRepositoriesMapsRepositoryRecords()
+    {
+        var client = CreateClient("{\"data\":[{\"name\":\"stable\",\"url\":\"https://example.test\"}]}", out var request);
+
+        client.ListRepositories().ShouldHaveSingleItem().ShouldBe(new HelmRepository("stable", "https://example.test"));
+
+        request().GetProperty("operation").GetString().ShouldBe("repoList");
+    }
+
+    [Fact]
+    public void AddRepositorySendsCredentials()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.AddRepository("private", "https://example.test", "user", "secret");
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("repoAdd");
+        json.GetProperty("repositoryName").GetString().ShouldBe("private");
+        json.GetProperty("repositoryUrl").GetString().ShouldBe("https://example.test");
+        json.GetProperty("repositoryUsername").GetString().ShouldBe("user");
+        json.GetProperty("repositoryPassword").GetString().ShouldBe("secret");
+    }
+
+    [Fact]
+    public void RemoveRepositorySendsName()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.RemoveRepository("stable");
+
+        request().GetProperty("repositoryName").GetString().ShouldBe("stable");
+        request().GetProperty("operation").GetString().ShouldBe("repoRemove");
+    }
+
+    [Fact]
+    public void UpdateRepositoriesSendsOperation()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.UpdateRepositories();
+
+        request().GetProperty("operation").GetString().ShouldBe("repoUpdate");
+    }
+
+    [Fact]
+    public void InvokePropagatesAllConfiguredOptions()
+    {
+        var options = new HelmClientOptions
         {
-            actual = arguments;
-            return Task.FromResult(new HelmCommandResult(0, "", ""));
+            Kubeconfig = "kube.yaml", KubeContext = "dev", Namespace = "apps",
+            RepositoryConfig = "repositories.yaml", RepositoryCache = "cache",
+            RegistryConfig = "registry.json", HelmDriver = "configmap"
+        };
+        var client = CreateClient("{\"data\":[]}", out var request, options);
+
+        client.ListReleases();
+
+        var json = request();
+        json.GetProperty("kubeconfig").GetString().ShouldBe("kube.yaml");
+        json.GetProperty("kubeContext").GetString().ShouldBe("dev");
+        json.GetProperty("namespace").GetString().ShouldBe("apps");
+        json.GetProperty("repositoryConfig").GetString().ShouldBe("repositories.yaml");
+        json.GetProperty("repositoryCache").GetString().ShouldBe("cache");
+        json.GetProperty("registryConfig").GetString().ShouldBe("registry.json");
+        json.GetProperty("helmDriver").GetString().ShouldBe("configmap");
+    }
+
+    [Fact]
+    public void InvokeThrowsActionExceptionWhenNativeResponseHasError()
+    {
+        var client = CreateClient("{\"error\":\"release not found\"}", out _);
+
+        Should.Throw<HelmActionException>(() => client.Status("missing")).Message.ShouldBe("release not found");
+    }
+
+    [Fact]
+    public void InvokeThrowsWhenNativeResponseIsInvalidJson()
+    {
+        var client = CreateClient("not json", out _);
+
+        Should.Throw<JsonException>(() => client.ListReleases());
+    }
+
+    [Fact]
+    public void OperationsWithOptionalDataReturnEmptyDefaults()
+    {
+        var client = CreateClient("{}", out _);
+
+        client.ListReleases().ShouldBeEmpty();
+        client.History("web").ShouldBeEmpty();
+        client.ListRepositories().ShouldBeEmpty();
+        client.GetValues("web").ShouldBeEmpty();
+        client.Template("web", "chart").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void InstallThrowsWhenNativeResponseHasNoRelease()
+    {
+        var client = CreateClient("{}", out _);
+
+        Should.Throw<InvalidOperationException>(() => client.Install("web", "chart"));
+    }
+
+    [Fact]
+    public void NativeCallCopiesRequestAndFreesResponse()
+    {
+        var native = new FakeNativeApi("{\"data\":[]}");
+        var client = new HelmClient(new HelmClientOptions { Namespace = "apps" }, native);
+
+        client.ListReleases().ShouldBeEmpty();
+
+        native.Request.ShouldNotBeNull();
+        using var request = JsonDocument.Parse(native.Request);
+        request.RootElement.GetProperty("operation").GetString().ShouldBe("list");
+        request.RootElement.GetProperty("namespace").GetString().ShouldBe("apps");
+        native.WasFreed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void NativeCallThrowsWhenNativeReturnsNull()
+    {
+        var native = new FakeNativeApi(null);
+        var client = new HelmClient(new HelmClientOptions(), native);
+
+        Should.Throw<InvalidOperationException>(() => client.ListReleases()).Message.ShouldContain("null response");
+        native.WasFreed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void NativeCallFreesResponseWhenItCannotBeDecoded()
+    {
+        var native = new FakeNativeApi("unused") { ReturnUndecodableString = true };
+        var client = new HelmClient(new HelmClientOptions(), native);
+
+        Should.Throw<InvalidOperationException>(() => client.ListReleases()).Message.ShouldContain("invalid response");
+        native.WasFreed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void NativeRequestUsesCamelCaseJsonFields()
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new NativeHelmRequest("repoAdd", RepositoryURL: "https://example.test"), NativeJsonContext.Default.NativeHelmRequest);
+
+        var text = Encoding.UTF8.GetString(bytes);
+        text.ShouldContain("\"operation\"");
+        text.ShouldContain("\"repositoryUrl\"");
+        text.Contains("\"Operation\"", StringComparison.Ordinal).ShouldBeFalse();
+    }
+
+    private static HelmClient CreateClient(string response, out Func<JsonElement> readRequest, HelmClientOptions? options = null)
+    {
+        JsonElement? captured = null;
+        var client = new HelmClient(options ?? new HelmClientOptions(), payload =>
+        {
+            using var document = JsonDocument.Parse(payload);
+            captured = document.RootElement.Clone();
+            return response;
         });
-
-        await client.ExecuteAsync(HelmCommand.Version);
-
-        actual.ShouldBe(Args("version"));
+        readRequest = () => captured ?? throw new InvalidOperationException("No native request was captured.");
+        return client;
     }
 
-    [Fact]
-    public async Task TypedOperationsBuildHelmCommands()
+    private sealed class FakeNativeApi(string? response) : IHelmNativeApi
     {
-        var calls = new List<IReadOnlyList<string>>();
-        var client = new HelmClient(new HelmClientOptions { UseBundledExecutable = false }, (args, _) =>
+        private nint _responsePointer;
+
+        public byte[]? Request { get; private set; }
+        public bool WasFreed { get; private set; }
+        public bool ReturnUndecodableString { get; init; }
+
+        public nint Execute(nint input)
         {
-            calls.Add(args);
-            return Task.FromResult(new HelmCommandResult(0, "helm output\n", ""));
-        });
+            var bytes = new List<byte>();
+            for (var offset = 0; Marshal.ReadByte(input, offset) != 0; offset++)
+                bytes.Add(Marshal.ReadByte(input, offset));
+            Request = bytes.ToArray();
+            if (response is null)
+                return 0;
 
-        await client.CreateChartAsync("my-chart");
-        await client.InstallAsync(new HelmInstallOptions("release", "./my-chart", "apps"));
-        await client.UpgradeAsync(new HelmUpgradeOptions("release", "./my-chart", InstallIfMissing: true));
-        await client.UninstallAsync("release", "apps");
-        await client.ListAsync(new HelmListOptions(AllNamespaces: true));
-        await client.StatusAsync("release");
-        (await client.GetVersionAsync()).ShouldBe("helm output\n");
-        (await client.GenerateCompletionAsync("powershell")).ShouldBe("helm output\n");
-
-        calls.Count.ShouldBe(8);
-        calls[0].ShouldBe(Args("create", "my-chart"));
-        calls[1].ShouldBe(Args("install", "release", "./my-chart", "--namespace", "apps"));
-        calls[2].ShouldBe(Args("upgrade", "release", "./my-chart", "--install"));
-        calls[3].ShouldBe(Args("uninstall", "release", "--namespace", "apps"));
-        calls[4].ShouldBe(Args("list", "--all-namespaces"));
-        calls[5].ShouldBe(Args("status", "release"));
-        calls[6].ShouldBe(Args("version"));
-        calls[7].ShouldBe(Args("completion", "powershell"));
-    }
-
-    [Fact]
-    public async Task GenericExecutionPropagatesCommandFailure()
-    {
-        var exception = await Should.ThrowAsync<HelmCommandException>(() => new HelmClient(new HelmClientOptions { UseBundledExecutable = false }, (_, _) =>
-            Task.FromException<HelmCommandResult>(new HelmCommandException("failed"))).ExecuteAsync(Args("version")));
-        exception.Message.ShouldBe("failed");
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncCapturesSuccessfulProcessOutput()
-    {
-        var result = await new HelmClient(new HelmClientOptions { ExecutablePath = ShellPath }).ExecuteAsync(ShellArguments("echo hello"));
-        result.ExitCode.ShouldBe(0);
-        result.StandardOutput!.ShouldContain("hello");
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncAppliesWorkingDirectoryAndEnvironment()
-    {
-        var workingDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workingDirectory);
-        try
-        {
-            var command = IsWindows ? "echo %HELM_NET_TEST%" : "printf '%s' \"$HELM_NET_TEST\"";
-            var client = new HelmClient(new HelmClientOptions
-            {
-                ExecutablePath = ShellPath,
-                WorkingDirectory = workingDirectory,
-                Environment = new Dictionary<string, string?> { ["HELM_NET_TEST"] = "configured" }
-            });
-
-            var result = await client.ExecuteAsync(ShellArguments(command));
-
-            result.StandardOutput.ShouldContain("configured");
+            var responseBytes = Encoding.UTF8.GetBytes(response + "\0");
+            _responsePointer = Marshal.AllocHGlobal(responseBytes.Length);
+            Marshal.Copy(responseBytes, 0, _responsePointer, responseBytes.Length);
+            return _responsePointer;
         }
-        finally
+
+        public string? GetString(nint value) => ReturnUndecodableString ? null : Marshal.PtrToStringUTF8(value);
+
+        public void Free(nint value)
         {
-            Directory.Delete(workingDirectory, recursive: true);
+            WasFreed = true;
+            Marshal.FreeHGlobal(value);
+            _responsePointer = 0;
         }
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncReportsNonzeroExitCodeAndOutput()
-    {
-        var command = IsWindows ? "echo error 1>&2 & exit 7" : "echo error >&2; exit 7";
-        var exception = await Should.ThrowAsync<HelmCommandException>(() => new HelmClient(new HelmClientOptions { ExecutablePath = ShellPath }).ExecuteAsync(ShellArguments(command)));
-        exception.ExitCode.ShouldBe(7);
-        exception.StandardError!.ShouldContain("error");
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncReportsCancellationAndStopsProcess()
-    {
-        var command = IsWindows ? "for /L %i in (0,0,1) do @rem" : "while true; do :; done";
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-
-        var exception = await Should.ThrowAsync<HelmCommandException>(() =>
-            new HelmClient(new HelmClientOptions { ExecutablePath = ShellPath }).ExecuteAsync(ShellArguments(command), cancellation.Token));
-
-        exception.Message.ShouldBe("Helm command was cancelled or timed out.");
-        exception.InnerException.ShouldBeAssignableTo<OperationCanceledException>();
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncStopsProcessWhenConfiguredTimeoutExpires()
-    {
-        var command = IsWindows ? "for /L %i in (0,0,1) do @rem" : "while true; do :; done";
-        var client = new HelmClient(new HelmClientOptions
-        {
-            ExecutablePath = ShellPath,
-            CommandTimeout = TimeSpan.FromMilliseconds(100)
-        });
-
-        var exception = await Should.ThrowAsync<HelmCommandException>(() => client.ExecuteAsync(ShellArguments(command)));
-
-        exception.Message.ShouldBe("Helm command was cancelled or timed out.");
-        exception.InnerException.ShouldBeAssignableTo<OperationCanceledException>();
-    }
-
-    [Fact]
-    public async Task ExecuteAsyncReportsUnstartableExecutable()
-    {
-        var exception = await Should.ThrowAsync<HelmCommandException>(() => new HelmClient(new HelmClientOptions { ExecutablePath = "missing-helm-executable" }).ExecuteAsync(Args("version")));
-        exception.InnerException.ShouldNotBeNull();
     }
 }
+

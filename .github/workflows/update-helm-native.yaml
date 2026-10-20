@@ -1,0 +1,235 @@
+name: Update Helm Go Library
+
+on:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update and target with the pull request
+        required: true
+        default: main
+        type: string
+  push:
+    branches:
+      - main
+      - alpha
+      - beta
+    paths:
+      - native/helm-shim/**
+      - .github/workflows/update-helm-native.yaml
+
+concurrency:
+  group: update-helm-native-${{ inputs.target_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Update Helm dependency and test shim
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      helm-version: ${{ steps.versions.outputs.helm-version }}
+      go-version: ${{ steps.versions.outputs.go-version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_branch || github.ref_name }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: native/helm-shim/go.sum
+
+      - name: Update Helm to the latest stable Go module
+        working-directory: native/helm-shim
+        run: |
+          go get helm.sh/helm/v4@latest
+          go mod tidy
+          go test -cover ./...
+
+      - name: Record versions
+        id: versions
+        working-directory: native/helm-shim
+        run: |
+          echo "helm-version=$(go list -m -f '{{.Version}}' helm.sh/helm/v4)" >> "$GITHUB_OUTPUT"
+          echo "go-version=$(go env GOVERSION | sed 's/^go//')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: helm-dependency-files
+          path: |
+            native/helm-shim/go.mod
+            native/helm-shim/go.sum
+          if-no-files-found: error
+          retention-days: 1
+
+  build-native:
+    name: Build ${{ matrix.rid }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            runner: windows-2025
+            goos: windows
+            goarch: amd64
+            output: helmshim.dll
+            cc: gcc
+            shell: msys2 {0}
+            msystem: UCRT64
+            msys-packages: mingw-w64-ucrt-x86_64-gcc
+          - rid: win-arm64
+            runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+            output: helmshim.dll
+            cc: aarch64-w64-mingw32-clang
+            shell: msys2 {0}
+            msystem: CLANGARM64
+            msys-packages: mingw-w64-clang-aarch64-clang
+
+          - rid: linux-x64
+            runner: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+            output: libhelmshim.so
+            cc: gcc
+            shell: bash
+          - rid: linux-arm64
+            runner: ubuntu-22.04-arm
+            goos: linux
+            goarch: arm64
+            output: libhelmshim.so
+            cc: gcc
+            shell: bash
+
+          - rid: osx-x64
+            runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            output: libhelmshim.dylib
+            cc: clang
+            shell: bash
+          - rid: osx-arm64
+            runner: macos-15
+            goos: darwin
+            goarch: arm64
+            output: libhelmshim.dylib
+            cc: clang
+            shell: bash
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_branch || github.ref_name }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: helm-dependency-files
+          path: native/helm-shim
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ needs.prepare.outputs.go-version }}
+          cache-dependency-path: native/helm-shim/go.sum
+
+      - uses: msys2/setup-msys2@v2
+        if: startsWith(matrix.rid, 'win-')
+        with:
+          msystem: ${{ matrix.msystem }}
+          install: ${{ matrix.msys-packages }}
+
+      - name: Build and verify native library
+        working-directory: native/helm-shim
+        env:
+          CGO_ENABLED: 1
+          CC: ${{ matrix.cc }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          RID: ${{ matrix.rid }}
+          LIBRARY_NAME: ${{ matrix.output }}
+        run: |
+          output="../../src/Helm.NET/runtimes/${RID}/native/${LIBRARY_NAME}"
+          mkdir -p "$(dirname "$output")"
+          go build -buildmode=c-shared -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o "$output" .
+          rm -f "$output.h"
+          symbols="$(go tool nm "$output")"
+          printf '%s\n' "$symbols" | grep -Eq '[[:space:]]T[[:space:]]+HelmExecuteJSON$'
+          printf '%s\n' "$symbols" | grep -Eq '[[:space:]]T[[:space:]]+HelmFree$'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: src/Helm.NET/runtimes/${{ matrix.rid }}/native/${{ matrix.output }}
+          if-no-files-found: error
+          retention-days: 1
+
+  create-update-pr:
+    name: Open update pull request
+    needs:
+      - prepare
+      - build-native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_branch || github.ref_name }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: helm-dependency-files
+          path: native/helm-shim
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: downloaded-native
+          merge-multiple: false
+
+      - name: Install six native libraries
+        env:
+          HELM_VERSION: ${{ needs.prepare.outputs.helm-version }}
+        run: |
+          set -euo pipefail
+          declare -A library_names=(
+            [win-x64]=helmshim.dll
+            [win-arm64]=helmshim.dll
+            [linux-x64]=libhelmshim.so
+            [linux-arm64]=libhelmshim.so
+            [osx-x64]=libhelmshim.dylib
+            [osx-arm64]=libhelmshim.dylib
+          )
+          for rid in "${!library_names[@]}"; do
+            artifact="downloaded-native/native-${rid}/${library_names[$rid]}"
+            test -s "$artifact"
+            destination="src/Helm.NET/runtimes/${rid}/native"
+            mkdir -p "$destination"
+            cp "$artifact" "$destination/"
+          done
+          echo "Prepared Helm ${HELM_VERSION} native libraries:"
+          du -h src/Helm.NET/runtimes/*/native/*helmshim*
+
+      - uses: peter-evans/create-pull-request@v8
+        with:
+          base: ${{ inputs.target_branch || github.ref_name }}
+          branch: automation/update-helm-native
+          delete-branch: true
+          commit-message: "feat(helm): update Helm Go library to ${{ needs.prepare.outputs.helm-version }}"
+          title: "feat(helm): update Helm Go library to ${{ needs.prepare.outputs.helm-version }}"
+          body: |
+            Updates the pinned Helm Go module and rebuilds the native C-shared library for all supported runtime identifiers.
+
+            The workflow runs the Go shim tests and verifies the exported `HelmExecuteJSON` and `HelmFree` symbols before opening this pull request.
+          add-paths: |
+            native/helm-shim/go.mod
+            native/helm-shim/go.sum
+            src/Helm.NET/runtimes/*/native/*helmshim*
