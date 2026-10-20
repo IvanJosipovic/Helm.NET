@@ -5,7 +5,12 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - native/helm-shim/**
+      - src/Helm.NET/**
+      - tests/Helm.NET.AotSmoke/**
       - .github/workflows/go-test.yaml
+      - .github/workflows/aot-smoke.yaml
+      - Directory.Build.props
+      - global.json
   push:
     branches:
       - main
@@ -13,7 +18,12 @@ on:
       - beta
     paths:
       - native/helm-shim/**
+      - src/Helm.NET/**
+      - tests/Helm.NET.AotSmoke/**
       - .github/workflows/go-test.yaml
+      - .github/workflows/aot-smoke.yaml
+      - Directory.Build.props
+      - global.json
 
 jobs:
   test:
@@ -33,3 +43,7 @@ jobs:
           CGO_ENABLED: 1
           HELM_SHIM_TEST_CLUSTER: "true"
         run: go test -cover ./...
+
+  native-aot:
+    name: NativeAOT smoke tests
+    uses: ./.github/workflows/aot-smoke.yaml

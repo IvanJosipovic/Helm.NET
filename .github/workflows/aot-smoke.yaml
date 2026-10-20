@@ -1,26 +1,7 @@
 name: NativeAOT Smoke Test
 
 on:
-  pull_request:
-    paths:
-      - src/Helm.NET/**
-      - native/helm-shim/**
-      - tests/Helm.NET.AotSmoke/**
-      - .github/workflows/aot-smoke.yaml
-      - Directory.Build.props
-      - global.json
-  push:
-    branches:
-      - main
-      - alpha
-      - beta
-    paths:
-      - src/Helm.NET/**
-      - native/helm-shim/**
-      - tests/Helm.NET.AotSmoke/**
-      - .github/workflows/aot-smoke.yaml
-      - Directory.Build.props
-      - global.json
+  workflow_call:
 
 jobs:
   native-aot:
@@ -35,34 +16,28 @@ jobs:
         include:
           - rid: win-x64
             runner: windows-2025
-            shell: pwsh
-            executable-prefix: .\aot-publish-
-            executable-suffix: \Helm.NET.AotSmoke.exe
+            executable_prefix: .\aot-publish-
+            executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: win-arm64
             runner: windows-11-arm
-            shell: pwsh
-            executable-prefix: .\aot-publish-
-            executable-suffix: \Helm.NET.AotSmoke.exe
+            executable_prefix: .\aot-publish-
+            executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: linux-x64
             runner: ubuntu-24.04
-            shell: bash
-            executable-prefix: ./aot-publish-
-            executable-suffix: /Helm.NET.AotSmoke
+            executable_prefix: ./aot-publish-
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: linux-arm64
             runner: ubuntu-24.04-arm
-            shell: bash
-            executable-prefix: ./aot-publish-
-            executable-suffix: /Helm.NET.AotSmoke
+            executable_prefix: ./aot-publish-
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-x64
             runner: macos-15-intel
-            shell: bash
-            executable-prefix: ./aot-publish-
-            executable-suffix: /Helm.NET.AotSmoke
+            executable_prefix: ./aot-publish-
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-arm64
             runner: macos-15
-            shell: bash
-            executable-prefix: ./aot-publish-
-            executable-suffix: /Helm.NET.AotSmoke
+            executable_prefix: ./aot-publish-
+            executable_suffix: /Helm.NET.AotSmoke
 
     steps:
       - uses: actions/checkout@v7
@@ -87,8 +62,7 @@ jobs:
           --output aot-publish-${{ matrix.framework }}
 
       - name: Run NativeAOT smoke application
-        shell: ${{ matrix.shell }}
-        run: ${{ matrix.executable-prefix }}${{ matrix.framework }}${{ matrix.executable-suffix }}
+        run: ${{ matrix.executable_prefix }}${{ matrix.framework }}${{ matrix.executable_suffix }}
 
   native-aot-kubernetes:
     name: NativeAOT Helm operations ${{ matrix.framework }}
