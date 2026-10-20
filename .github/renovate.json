@@ -48,31 +48,6 @@
         "tests/**",
         "benchmarks/**"
       ]
-    },
-    {
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchFileNames": [
-        "src/Helm.NET/Helm.NET.csproj"
-      ],
-      "automerge": false,
-      "semanticCommitType": "chore",
-      "semanticCommitScope": "helm"
-    }
-  ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^src\\/Helm\\.NET\\/Helm\\.NET\\.csproj$/"
-      ],
-      "matchStrings": [
-        "<HelmVersion>\\s*(?<currentValue>v?\\d+\\.\\d+\\.\\d+)\\s*</HelmVersion>"
-      ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "helm/helm",
-      "versioningTemplate": "semver"
     }
   ]
 }

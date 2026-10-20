@@ -1,9 +1,14 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Helm.NET;
 
-[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
+[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(NativeHelmRequest))]
+[JsonSerializable(typeof(NativeHelmRelease))]
+[JsonSerializable(typeof(NativeHelmAck))]
 [JsonSerializable(typeof(HelmRelease[]))]
-internal partial class HelmJsonContext : JsonSerializerContext
-{
-}
+[JsonSerializable(typeof(HelmRepository[]))]
+[JsonSerializable(typeof(Dictionary<string, JsonElement>), TypeInfoPropertyName = "ValueDictionary")]
+[JsonSerializable(typeof(string))]
+internal partial class NativeJsonContext : JsonSerializerContext;

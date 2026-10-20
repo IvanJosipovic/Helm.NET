@@ -1,0 +1,35 @@
+name: Go Shim Tests
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - native/helm-shim/**
+      - .github/workflows/go-test.yaml
+  push:
+    branches:
+      - main
+      - alpha
+      - beta
+    paths:
+      - native/helm-shim/**
+      - .github/workflows/go-test.yaml
+
+jobs:
+  test:
+    name: Test Helm shim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: native/helm-shim/go.mod
+          cache-dependency-path: native/helm-shim/go.sum
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1.15.1
+      - name: Run tests
+        working-directory: native/helm-shim
+        env:
+          CGO_ENABLED: 1
+          HELM_SHIM_TEST_CLUSTER: "true"
+        run: go test -cover ./...
