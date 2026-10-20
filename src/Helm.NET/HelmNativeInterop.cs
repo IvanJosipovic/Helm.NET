@@ -11,7 +11,38 @@ internal interface IHelmNativeApi
 
 internal static class HelmNativeInterop
 {
+    static HelmNativeInterop()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(HelmNativeInterop).Assembly, ResolveLibrary);
+    }
+
     internal static IHelmNativeApi DefaultApi { get; } = new NativeHelmApi();
+
+    private static nint ResolveLibrary(
+        string libraryName,
+        System.Reflection.Assembly _assembly,
+        DllImportSearchPath? _searchPath)
+    {
+        if (!string.Equals(libraryName, "helmshim", StringComparison.Ordinal))
+            return 0;
+
+        var libraryPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "runtimes",
+            RuntimeInformation.RuntimeIdentifier,
+            "native",
+            GetLibraryFileName());
+
+        return NativeLibrary.TryLoad(libraryPath, out var handle) ? handle : nint.Zero;
+    }
+
+    private static string GetLibraryFileName()
+    {
+        if (OperatingSystem.IsWindows())
+            return "helmshim.dll";
+
+        return OperatingSystem.IsMacOS() ? "libhelmshim.dylib" : "libhelmshim.so";
+    }
 
     internal static string Invoke(byte[] payload, IHelmNativeApi nativeApi)
     {

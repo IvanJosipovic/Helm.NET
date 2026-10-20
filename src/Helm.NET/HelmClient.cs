@@ -61,11 +61,19 @@ public sealed class HelmClient : IHelmClient
 
     /// <summary>Rolls a release back to the specified revision, or its previous revision when zero.</summary>
     public void Rollback(string releaseName, int revision = 0) =>
-        _ = Invoke(new NativeHelmRequest("rollback", releaseName, Revision: revision), NativeJsonContext.Default.NativeHelmAck);
+        Rollback(releaseName, revision, wait: false);
+
+    /// <summary>Rolls a release back and optionally waits for its resources to become ready.</summary>
+    public void Rollback(string releaseName, int revision, bool wait) =>
+        _ = Invoke(new NativeHelmRequest("rollback", releaseName, Wait: wait, Revision: revision), NativeJsonContext.Default.NativeHelmAck);
 
     /// <summary>Uninstalls a release.</summary>
     public void Uninstall(string releaseName) =>
-        _ = Invoke(new NativeHelmRequest("uninstall", releaseName), NativeJsonContext.Default.NativeHelmAck);
+        Uninstall(releaseName, wait: false);
+
+    /// <summary>Uninstalls a release and optionally waits for its resources to be deleted.</summary>
+    public void Uninstall(string releaseName, bool wait) =>
+        _ = Invoke(new NativeHelmRequest("uninstall", releaseName, Wait: wait), NativeJsonContext.Default.NativeHelmAck);
 
     /// <summary>Gets the values applied to a release.</summary>
     public IReadOnlyDictionary<string, JsonElement> GetValues(string releaseName) =>
