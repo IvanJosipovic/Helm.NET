@@ -143,6 +143,7 @@ jobs:
         if: startsWith(matrix.rid, 'win-')
         with:
           msystem: ${{ matrix.msystem }}
+          path-type: inherit
           install: ${{ matrix.msys-packages }}
 
       - name: Build and verify native library
@@ -156,12 +157,13 @@ jobs:
           LIBRARY_NAME: ${{ matrix.output }}
         run: |
           output="../../src/Helm.NET/runtimes/${RID}/native/${LIBRARY_NAME}"
+          header="${output%.*}.h"
           mkdir -p "$(dirname "$output")"
           go build -buildmode=c-shared -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o "$output" .
-          rm -f "$output.h"
-          symbols="$(go tool nm "$output")"
-          printf '%s\n' "$symbols" | grep -Eq '[[:space:]]T[[:space:]]+HelmExecuteJSON$'
-          printf '%s\n' "$symbols" | grep -Eq '[[:space:]]T[[:space:]]+HelmFree$'
+          test -s "$header"
+          grep -Fq 'HelmExecuteJSON' "$header"
+          grep -Fq 'HelmFree' "$header"
+          rm -f "$header"
 
       - uses: actions/upload-artifact@v7
         with:
