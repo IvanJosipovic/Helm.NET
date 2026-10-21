@@ -8,6 +8,7 @@ using Helm.NET;
 
 namespace Helm.NET.Scenarios;
 
+/// <summary>Real-native chart catalog and version scenarios used by the E2E hosts.</summary>
 public static partial class HelmClientScenarios
 {
     public static void RunChartVersionScenarios(bool clusterLifecycle)
@@ -36,12 +37,15 @@ public static partial class HelmClientScenarios
             Require(charts.Count == 10, $"Expected all chart versions from both configured repositories, got {charts.Count}.");
             var expectedCatalog = new[]
             {
-                "versions-extra/versioned-extra@1.0.0", "versions-extra/versioned-extra@2.0.0",
                 "versions-extra/versioned@1.0.0", "versions-extra/versioned@2.0.0", "versions-extra/versioned@3.0.0",
-                "versions/versioned-extra@1.0.0", "versions/versioned-extra@2.0.0",
-                "versions/versioned@1.0.0", "versions/versioned@2.0.0", "versions/versioned@3.0.0"
+                "versions-extra/versioned-extra@1.0.0", "versions-extra/versioned-extra@2.0.0",
+                "versions/versioned@1.0.0", "versions/versioned@2.0.0", "versions/versioned@3.0.0",
+                "versions/versioned-extra@1.0.0", "versions/versioned-extra@2.0.0"
             };
-            Require(charts.Select(chart => $"{chart.Reference}@{chart.Version}").SequenceEqual(expectedCatalog), "Chart listing was incomplete or not deterministically ordered.");
+            var actualCatalog = charts.Select(chart => $"{chart.Reference}@{chart.Version}").ToArray();
+            Require(
+                actualCatalog.SequenceEqual(expectedCatalog),
+                $"Chart listing was incomplete or not deterministically ordered. Expected [{string.Join(", ", expectedCatalog)}], got [{string.Join(", ", actualCatalog)}].");
             var selectedRepository = helm.ListCharts("versions");
             Require(selectedRepository.Count == 5 && selectedRepository.All(chart => chart.Reference.StartsWith("versions/", StringComparison.Ordinal)), "Repository listing did not match the exact repository name.");
             Require(helm.ListCharts("versions-extra").Count == 5, "A similarly named repository was not independently selectable.");

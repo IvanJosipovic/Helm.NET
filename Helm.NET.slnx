@@ -6,6 +6,8 @@
     <File Path="README.md" />
   </Folder>
   <Project Path="tests/Helm.NET.Tests/Helm.NET.Tests.csproj" />
-  <Project Path="tests/Helm.NET.Tests.AOT/Helm.NET.Tests.AOT.csproj" />
+  <Project Path="tests/Helm.NET.Tests.E2E.Shared/Helm.NET.Tests.E2E.Shared.csproj" />
+  <Project Path="tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj" />
+  <Project Path="tests/Helm.NET.Tests.E2E.AOT/Helm.NET.Tests.E2E.AOT.csproj" />
   <Project Path="src/Helm.NET/Helm.NET.csproj" />
 </Solution>

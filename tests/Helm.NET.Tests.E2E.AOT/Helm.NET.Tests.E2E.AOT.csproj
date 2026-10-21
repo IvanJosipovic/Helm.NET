@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- The shared test configuration enables extensions that this AOT host does not reference. -->
+    <TestingPlatformCommandLineArguments />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.aot.mtp-v2" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Helm.NET.Tests.E2E.Shared\Helm.NET.Tests.E2E.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

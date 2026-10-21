@@ -6,8 +6,9 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.Tests.AOT/**
-      - tests/Helm.NET.Shared/**
+      - tests/Helm.NET.Tests.E2E.AOT/**
+      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.Tests.E2E/**
       - tests/Helm.NET.Tests/**
       - Helm.NET.slnx
       - .github/workflows/go-test.yaml
@@ -22,8 +23,9 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.Tests.AOT/**
-      - tests/Helm.NET.Shared/**
+      - tests/Helm.NET.Tests.E2E.AOT/**
+      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.Tests.E2E/**
       - tests/Helm.NET.Tests/**
       - Helm.NET.slnx
       - .github/workflows/go-test.yaml
@@ -49,6 +51,16 @@ jobs:
           CGO_ENABLED: 1
           HELM_SHIM_TEST_CLUSTER: "true"
         run: go test -cover ./...
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: false
+
+      - name: Run managed Kind E2E scenarios
+        env:
+          HELM_TEST_CLUSTER: "true"
+        run: dotnet test --project tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj
 
   native-aot:
     name: NativeAOT smoke tests

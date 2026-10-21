@@ -16,8 +16,4 @@
     <ProjectReference Include="..\..\src\Helm.NET\Helm.NET.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\Helm.NET.Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
-  </ItemGroup>
-
 </Project>

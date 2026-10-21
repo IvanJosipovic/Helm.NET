@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
-using Helm.NET.Scenarios;
-
 namespace Helm.NET.Tests;
 
 public sealed class HelmClientTests
@@ -340,104 +338,6 @@ public sealed class HelmClientTests
         client.UpdateRepositories();
 
         request().GetProperty("operation").GetString().ShouldBe("repoUpdate");
-    }
-
-    [Fact]
-    public void SharedChartVersionsUseRealNativeResolution()
-    {
-        HelmClientScenarios.RunChartVersionScenarios(clusterLifecycle: false);
-    }
-
-    [Fact]
-    public void SharedScenariosUseTheSameOperationsWithScriptedNativeResponses()
-    {
-        var requests = new List<JsonElement>();
-        var repositoryListCount = 0;
-        var releaseListCount = 0;
-        var valuesCount = 0;
-        var mainRelease = Release("aot-smoke", "1");
-        var upgradedRelease = Release("aot-smoke", "2");
-        var secondaryRelease = Release("aot-smoke-nowait", "1");
-        const string manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aot-smoke\ndata:\n  setting: \"rendered\"\n";
-
-        string NativeCall(byte[] payload)
-        {
-            using var document = JsonDocument.Parse(payload);
-            var request = document.RootElement.Clone();
-            requests.Add(request);
-            var operation = request.GetProperty("operation").GetString();
-            var data = operation switch
-            {
-                "template" => JsonSerializer.Serialize(manifest, NativeJsonContext.Default.String),
-                "repoAdd" or "repoUpdate" or "repoRemove" or "rollback" or "uninstall" => "{\"succeeded\":true}",
-                "repoList" => ++repositoryListCount == 1
-                    ? "[{\"name\":\"aot-smoke\",\"url\":\"http://127.0.0.1\"}]"
-                    : "[]",
-                "chartSearch" => "[{\"reference\":\"aot-smoke/aot-smoke\",\"chartName\":\"aot-smoke\",\"version\":\"1.0.0\"}]",
-                "install" => mainRelease,
-                "getManifest" or "templateRelease" => JsonSerializer.Serialize(manifest, NativeJsonContext.Default.String),
-                "list" => ++releaseListCount switch
-                {
-                    1 or 2 => "[" + mainRelease + "]",
-                    3 => "[" + mainRelease + "," + secondaryRelease + "]",
-                    _ => "[]"
-                },
-                "status" => mainRelease,
-                "values" => ++valuesCount switch
-                {
-                    1 or 3 => "{\"setting\":\"installed\"}",
-                    _ => "{\"setting\":\"upgraded\"}"
-                },
-                "upgrade" => request.GetProperty("releaseName").GetString() == "aot-smoke"
-                    ? upgradedRelease
-                    : secondaryRelease,
-                "history" => "[" + mainRelease + "," + upgradedRelease + "]",
-                _ => throw new InvalidOperationException($"Unexpected scenario operation: {operation}")
-            };
-            return "{\"data\":" + data + "}";
-        }
-
-        HelmClient CreateClient(HelmClientOptions options) => new(options, NativeCall);
-
-        var chartDirectory = Path.Combine(Path.GetTempPath(), $"helm-net-scenario-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(chartDirectory);
-        File.WriteAllText(Path.Combine(chartDirectory, "smoke-values.yaml"), "setting: from-file\n");
-        try
-        {
-            var helm = CreateClient(new HelmClientOptions { Namespace = "helm-net-aot" });
-            HelmClientScenarios.Run(helm, CreateClient, chartDirectory, "http://127.0.0.1", clusterLifecycle: true);
-        }
-        finally
-        {
-            Directory.Delete(chartDirectory, recursive: true);
-        }
-
-        requests.Select(item => item.GetProperty("operation").GetString()).ShouldBe(
-        [
-            "template", "repoAdd", "repoList", "repoUpdate", "chartSearch", "repoRemove", "repoList",
-            "install", "getManifest", "templateRelease", "list", "list", "status", "values", "upgrade",
-            "values", "history", "rollback", "values", "rollback", "values", "upgrade", "list", "uninstall",
-            "uninstall", "list"
-        ]);
-        requests[0].GetProperty("version").GetString().ShouldBe("1.0.0");
-        requests[0].GetProperty("values").GetProperty("setting").GetString().ShouldBe("rendered");
-        requests[0].GetProperty("valuesFiles")[0].GetString().ShouldBe(Path.Combine(chartDirectory, "smoke-values.yaml"));
-        requests[1].GetProperty("repositoryName").GetString().ShouldBe("aot-smoke");
-        requests[1].GetProperty("repositoryUrl").GetString().ShouldBe("http://127.0.0.1");
-        requests[2].GetProperty("repositoryConfig").GetString()!.ShouldContain("repositories.yaml");
-        requests[2].GetProperty("repositoryCache").GetString()!.ShouldContain("cache");
-        requests[7].GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
-        requests[7].GetProperty("version").GetString().ShouldBe("1.0.0");
-        requests[14].GetProperty("installIfMissing").GetBoolean().ShouldBeTrue();
-        requests[14].GetProperty("version").GetString().ShouldBe("1.0.0");
-        requests[21].GetProperty("version").GetString().ShouldBe("1.0.0");
-        requests[17].GetProperty("revision").GetInt32().ShouldBe(1);
-        requests[10].GetProperty("namespace").GetString().ShouldBe("helm-net-aot");
-        requests[11].GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
-        requests[11].GetProperty("filter").GetString().ShouldBe("^aot-smoke$");
-
-        static string Release(string name, string revision) =>
-            $$"""{"name":"{{name}}","namespace":"helm-net-aot","revision":"{{revision}}","updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"aot-smoke-1.0.0","app_version":"1.0.0","chartName":"aot-smoke","chartVersion":"1.0.0"}""";
     }
 
     [Fact]
