@@ -120,7 +120,11 @@ func execute(req request) (any, string) {
 	if helmDriver == "" {
 		helmDriver = os.Getenv("HELM_DRIVER")
 	}
-	if err := cfg.Init(settings.RESTClientGetter(), req.Namespace, helmDriver); err != nil {
+	storageNamespace := req.Namespace
+	if req.Operation == "list" && req.AllNamespaces {
+		storageNamespace = ""
+	}
+	if err := cfg.Init(settings.RESTClientGetter(), storageNamespace, helmDriver); err != nil {
 		return nil, err.Error()
 	}
 
