@@ -10,6 +10,6 @@ namespace Helm.NET;
 [JsonSerializable(typeof(HelmRelease[]))]
 [JsonSerializable(typeof(HelmRepository[]))]
 [JsonSerializable(typeof(HelmChartSearchResult[]))]
-[JsonSerializable(typeof(Dictionary<string, JsonElement>), TypeInfoPropertyName = "ValueDictionary")]
+[JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(string))]
 internal partial class NativeJsonContext : JsonSerializerContext;

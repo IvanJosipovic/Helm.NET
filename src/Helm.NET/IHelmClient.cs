@@ -27,7 +27,7 @@ public interface IHelmClient
     /// <param name="chart">The chart argument or reference.</param>
     /// <param name="namespaceName">The release namespace passed through Helm CLI <c>--namespace</c>.</param>
     /// <param name="values">Values files passed through Helm CLI <c>--values</c>.</param>
-    /// <param name="setValues">Inline values passed through Helm CLI <c>--set</c>.</param>
+    /// <param name="setValues">Inline values as a JSON object, merged after values files.</param>
     /// <param name="version">The chart version passed through Helm CLI <c>--version</c>.</param>
     /// <param name="apiVersions">Kubernetes API versions used for chart capabilities.</param>
     /// <param name="kubeVersion">Kubernetes version used for chart capabilities.</param>
@@ -49,7 +49,7 @@ public interface IHelmClient
     /// <param name="insecureSkipTlsVerify">Skips TLS certificate verification for chart downloads.</param>
     /// <param name="passCredentials">Passes chart repository credentials to all domains.</param>
     /// <param name="plainHttp">Uses plain HTTP for chart downloads.</param>
-    string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
+    string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
 
     /// <summary>Gets the manifest stored in an installed release revision.</summary>
     /// <param name="releaseName">Release name.</param>
@@ -58,10 +58,10 @@ public interface IHelmClient
     string GetManifest(string releaseName, string? namespaceName = null, int revision = 0);
 
     /// <summary>Installs a chart with Helm CLI-compatible install options.</summary>
-    HelmRelease Install(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool dependencyUpdate = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, string? waitStrategy = null, bool replace = false, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
+    HelmRelease Install(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool dependencyUpdate = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, string? waitStrategy = null, bool replace = false, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
 
     /// <summary>Upgrades a chart with Helm CLI-compatible upgrade options.</summary>
-    HelmRelease Upgrade(string release, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, bool install = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool resetValues = false, bool reuseValues = false, bool resetThenReuseValues = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, bool dependencyUpdate = false, string? waitStrategy = null, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, bool cleanupOnFail = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
+    HelmRelease Upgrade(string release, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, bool install = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool resetValues = false, bool reuseValues = false, bool resetThenReuseValues = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, bool dependencyUpdate = false, string? waitStrategy = null, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, bool cleanupOnFail = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
 
     /// <summary>Gets the current release status.</summary>
     /// <param name="releaseName">Release name.</param>
@@ -81,12 +81,12 @@ public interface IHelmClient
     /// <summary>Uninstalls a release.</summary>
     void Uninstall(string releaseName, string? namespaceName = null, bool wait = false, string? waitStrategy = null, TimeSpan? timeout = null, bool disableHooks = false, bool dryRun = false, bool ignoreNotFound = false, bool keepHistory = false, string cascade = "background", string? description = null);
 
-    /// <summary>Gets the values applied to a release.</summary>
+    /// <summary>Gets release values as a JSON object.</summary>
     /// <param name="releaseName">Release name.</param>
     /// <param name="revision">Release revision, or zero for the latest revision.</param>
     /// <param name="all">Returns all computed values when true.</param>
     /// <param name="namespaceName">Release namespace, or the configured default namespace when omitted.</param>
-    IReadOnlyDictionary<string, JsonElement> GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false);
+    JsonElement GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false);
 
     /// <summary>Lists configured chart repositories.</summary>
     IReadOnlyList<HelmRepository> RepoList();

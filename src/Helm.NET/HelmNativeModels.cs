@@ -8,7 +8,7 @@ internal sealed record NativeHelmRequest(
     string? ReleaseName = null,
     string? Chart = null,
     string[]? ValuesFiles = null,
-    IReadOnlyDictionary<string, object?>? Values = null,
+    JsonElement? Values = null,
     bool CreateNamespace = false,
     bool Wait = false,
     long TimeoutMilliseconds = 0,

@@ -106,7 +106,7 @@ public static partial class HelmClientScenarios
             "aot-smoke",
             chartDirectory,
             values: [Path.Combine(chartDirectory, "smoke-values.yaml")],
-            setValues: new Dictionary<string, object?> { ["setting"] = "rendered" },
+            setValues: ParseJsonElement("""{"setting":"rendered"}"""),
             version: "1.0.0",
             namespaceName: "render-preview",
             apiVersions: ["example.io/v1"],
@@ -143,7 +143,7 @@ public static partial class HelmClientScenarios
         var installed = helm.Install(
             releaseName,
             chartDirectory,
-            setValues: new Dictionary<string, object?> { ["setting"] = "installed" },
+            setValues: ParseJsonElement("""{"setting":"installed"}"""),
             createNamespace: true,
             wait: true,
             waitStrategy: "watcher",
@@ -161,7 +161,7 @@ public static partial class HelmClientScenarios
         var upgraded = helm.Upgrade(
             releaseName,
             chartDirectory,
-            setValues: new Dictionary<string, object?> { ["setting"] = "upgraded" },
+            setValues: ParseJsonElement("""{"setting":"upgraded"}"""),
             install: true,
             wait: true,
             waitStrategy: "watcher",
@@ -189,8 +189,14 @@ public static partial class HelmClientScenarios
         Require(!helm.List().Any(release => release.Name == releaseName), "The release still appears after uninstall.");
     }
 
-    private static void RequireValue(IReadOnlyDictionary<string, JsonElement> values, string expected) =>
-        Require(values.TryGetValue("setting", out var setting) && setting.GetString() == expected, $"Unexpected release values: {values}");
+    private static void RequireValue(JsonElement values, string expected) =>
+        Require(values.ValueKind == JsonValueKind.Object && values.TryGetProperty("setting", out var setting) && setting.GetString() == expected, $"Unexpected release values: {values}");
+
+    private static JsonElement ParseJsonElement(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 
     private static void Require(bool condition, string message)
     {

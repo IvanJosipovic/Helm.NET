@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using Helm.NET;
 
 namespace Helm.NET.Scenarios;
@@ -36,7 +37,7 @@ public static partial class HelmClientScenarios
 
             var valuesFile = Path.Combine(directory, "values.yaml");
             File.WriteAllText(valuesFile, "setting: from-file\nretained: from-file\n");
-            var values = new Dictionary<string, object?> { ["setting"] = "inline", ["enabled"] = true, ["replicas"] = 2 };
+            var values = ParseJsonElement("""{"setting":"inline","enabled":true,"replicas":2}""");
             const string chartReference = "versions/versioned";
             string Preview(string name, string? version) =>
                 helm.Template(name, chartReference, values: [valuesFile], setValues: values, version: version);
@@ -78,7 +79,7 @@ public static partial class HelmClientScenarios
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises the public interface under NativeAOT.")]
     private static void RunVersionedDeployments(
-        IHelmClient helm, string chart, string valuesFile, IReadOnlyDictionary<string, object?> values,
+        IHelmClient helm, string chart, string valuesFile, JsonElement values,
         Func<string, string?, string> preview)
     {
         var installed = new List<string>();

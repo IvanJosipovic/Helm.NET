@@ -24,8 +24,9 @@ public sealed class HelmClient : IHelmClient
         Invoke(new NativeHelmRequest("list", AllNamespaces: allNamespaces, Filter: filter, Max: max, Offset: offset, Selector: selector, Deployed: deployed, Failed: failed, Pending: pending, Superseded: superseded, Uninstalled: uninstalled, Uninstalling: uninstalling, Date: dateSort, Reverse: reverse, Namespace: namespaceName), NativeJsonContext.Default.HelmReleaseArray) ?? [];
 
     /// <summary>Renders a chart locally and returns the rendered manifest.</summary>
-    public string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
+    public string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
     {
+        ValidateSetValues(setValues);
         return Invoke(new NativeHelmRequest("template", name, chart, values?.ToArray(), setValues, Version: version, Namespace: namespaceName, DryRun: dryRun, HideSecret: hideSecret, DisableHooks: disableHooks, PostRenderer: postRenderer, PostRendererArgs: postRendererArgs?.ToArray(), DependencyUpdate: dependencyUpdate, Repo: repo, RepositoryUsername: username, RepositoryPassword: password, CaFile: caFile, CertFile: certFile, KeyFile: keyFile, InsecureSkipTlsVerify: insecureSkipTlsVerify, PassCredentials: passCredentials, PlainHttp: plainHttp, ApiVersions: apiVersions?.ToArray(), KubeVersion: kubeVersion, IncludeCrds: includeCrds, SkipTests: skipTests, IsUpgrade: isUpgrade), NativeJsonContext.Default.String) ?? string.Empty;
     }
 
@@ -34,16 +35,18 @@ public sealed class HelmClient : IHelmClient
         Invoke(new NativeHelmRequest("getManifest", releaseName, Revision: revision, Namespace: namespaceName), NativeJsonContext.Default.String) ?? string.Empty;
 
     /// <summary>Installs a chart, optionally selecting a chart version, and returns the created release.</summary>
-    public HelmRelease Install(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool dependencyUpdate = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, string? waitStrategy = null, bool replace = false, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
+    public HelmRelease Install(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool dependencyUpdate = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, string? waitStrategy = null, bool replace = false, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
     {
+        ValidateSetValues(setValues);
         var request = new NativeHelmRequest("install", name, chart, values?.ToArray(), setValues, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0), Namespace: namespaceName, Version: version, DryRun: dryRun, HideSecret: hideSecret, DisableHooks: disableHooks, PostRenderer: postRenderer, PostRendererArgs: postRendererArgs?.ToArray(), WaitForJobs: waitForJobs, RollbackOnFailure: rollbackOnFailure, Devel: devel, DependencyUpdate: dependencyUpdate, SkipCrds: skipCrds, SkipSchemaValidation: skipSchemaValidation, DisableOpenApiValidation: disableOpenApiValidation, Description: description, WaitStrategy: waitStrategy, Replace: replace, ForceReplace: forceReplace, ForceConflicts: forceConflicts, TakeOwnership: takeOwnership, Repo: repo, RepositoryUsername: username, RepositoryPassword: password, CaFile: caFile, CertFile: certFile, KeyFile: keyFile, InsecureSkipTlsVerify: insecureSkipTlsVerify, PassCredentials: passCredentials, PlainHttp: plainHttp);
         var response = Invoke(request, NativeJsonContext.Default.NativeHelmRelease);
         return response?.ToHelmRelease() ?? throw new InvalidOperationException("Helm returned no release for the install operation.");
     }
 
     /// <summary>Upgrades an installed release, optionally selecting a chart version.</summary>
-    public HelmRelease Upgrade(string release, string chart, string? namespaceName = null, IEnumerable<string>? values = null, IReadOnlyDictionary<string, object?>? setValues = null, bool install = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool resetValues = false, bool reuseValues = false, bool resetThenReuseValues = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, bool dependencyUpdate = false, string? waitStrategy = null, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, bool cleanupOnFail = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
+    public HelmRelease Upgrade(string release, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, bool install = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool resetValues = false, bool reuseValues = false, bool resetThenReuseValues = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, bool dependencyUpdate = false, string? waitStrategy = null, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, bool cleanupOnFail = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
     {
+        ValidateSetValues(setValues);
         var request = new NativeHelmRequest("upgrade", release, chart, values?.ToArray(), setValues, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0), Namespace: namespaceName, InstallIfMissing: install, Version: version, DryRun: dryRun, HideSecret: hideSecret, DisableHooks: disableHooks, PostRenderer: postRenderer, PostRendererArgs: postRendererArgs?.ToArray(), WaitForJobs: waitForJobs, RollbackOnFailure: rollbackOnFailure, ResetValues: resetValues, ReuseValues: reuseValues, ResetThenReuseValues: resetThenReuseValues, DependencyUpdate: dependencyUpdate, SkipCrds: skipCrds, Devel: devel, SkipSchemaValidation: skipSchemaValidation, DisableOpenApiValidation: disableOpenApiValidation, Description: description, WaitStrategy: waitStrategy, ForceReplace: forceReplace, ForceConflicts: forceConflicts, TakeOwnership: takeOwnership, CleanupOnFail: cleanupOnFail, Repo: repo, RepositoryUsername: username, RepositoryPassword: password, CaFile: caFile, CertFile: certFile, KeyFile: keyFile, InsecureSkipTlsVerify: insecureSkipTlsVerify, PassCredentials: passCredentials, PlainHttp: plainHttp);
         var response = Invoke(request, NativeJsonContext.Default.NativeHelmRelease);
         return response?.ToHelmRelease() ?? throw new InvalidOperationException("Helm returned no release for the upgrade operation.");
@@ -69,8 +72,11 @@ public sealed class HelmClient : IHelmClient
         _ = Invoke(new NativeHelmRequest("uninstall", releaseName, Wait: wait, TimeoutMilliseconds: (long)(timeout?.TotalMilliseconds ?? 0), Namespace: namespaceName, DisableHooks: disableHooks, WaitStrategy: waitStrategy, DryRunUninstall: dryRun, IgnoreNotFound: ignoreNotFound, KeepHistory: keepHistory, Cascade: cascade, Description: description), NativeJsonContext.Default.NativeHelmAck);
 
     /// <summary>Gets the values applied to a release.</summary>
-    public IReadOnlyDictionary<string, JsonElement> GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false) =>
-        Invoke(new NativeHelmRequest("values", releaseName, Namespace: namespaceName, Revision: revision, AllValues: all), NativeJsonContext.Default.ValueDictionary) ?? new Dictionary<string, JsonElement>();
+    public JsonElement GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false)
+    {
+        var values = Invoke(new NativeHelmRequest("values", releaseName, Namespace: namespaceName, Revision: revision, AllValues: all), NativeJsonContext.Default.JsonElement);
+        return values.ValueKind == JsonValueKind.Undefined ? CreateEmptyJsonObject() : values;
+    }
 
     /// <summary>Lists configured chart repositories.</summary>
     public IReadOnlyList<HelmRepository> RepoList() =>
@@ -109,6 +115,18 @@ public sealed class HelmClient : IHelmClient
         if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
             throw new HelmActionException(error.GetString() ?? "Helm action failed.");
         return document.RootElement.TryGetProperty("data", out var data) ? data.Deserialize(resultType) : default;
+    }
+
+    private static void ValidateSetValues(JsonElement? setValues)
+    {
+        if (setValues is JsonElement values && values.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("setValues must be a JSON object.", nameof(setValues));
+    }
+
+    private static JsonElement CreateEmptyJsonObject()
+    {
+        using var document = JsonDocument.Parse("{}");
+        return document.RootElement.Clone();
     }
 
     private string CallNative(byte[] payload)

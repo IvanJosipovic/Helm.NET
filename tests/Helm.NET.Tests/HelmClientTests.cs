@@ -82,7 +82,7 @@ public sealed class HelmClientTests
     public void TemplateSerializesValuesAndReturnsManifest()
     {
         var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
-        var values = new Dictionary<string, object?> { ["replicas"] = 2 };
+        var values = ParseJsonElement("""{"replicas":2,"image":{"tag":"1.2.3"}}""");
 
         client.Template("web", "./chart", values: ["prod.yaml"], setValues: values).ShouldBe("rendered yaml");
 
@@ -92,6 +92,17 @@ public sealed class HelmClientTests
         json.GetProperty("chart").GetString().ShouldBe("./chart");
         json.GetProperty("valuesFiles")[0].GetString().ShouldBe("prod.yaml");
         json.GetProperty("values").GetProperty("replicas").GetInt32().ShouldBe(2);
+        json.GetProperty("values").GetProperty("image").GetProperty("tag").GetString().ShouldBe("1.2.3");
+    }
+
+    [Fact]
+    public void SetValuesRequiresJsonObject()
+    {
+        var client = CreateClient("{\"data\":\"rendered yaml\"}", out _);
+        var values = ParseJsonElement("3");
+
+        Should.Throw<ArgumentException>(() => client.Template("web", "chart", setValues: values))
+            .ParamName.ShouldBe("setValues");
     }
 
     [Fact]
@@ -168,7 +179,7 @@ public sealed class HelmClientTests
     public void InstallSerializesAllOptionsAndMapsRelease()
     {
         var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-        var release = client.Install("web", "chart", "apps", values: ["values.yaml"], setValues: new Dictionary<string, object?> { ["key"] = "value" }, createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(12.5));
+        var release = client.Install("web", "chart", "apps", values: ["values.yaml"], setValues: ParseJsonElement("""{"key":"value"}"""), createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(12.5));
 
         release.Name.ShouldBe("web");
         release.AppVersion.ShouldBe("2.0");
@@ -278,7 +289,7 @@ public sealed class HelmClientTests
             {"data":{"name":"web","namespace":"apps","revision":"4","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
             """;
         IHelmClient client = CreateClient(response, out var request);
-        var values = new Dictionary<string, object?> { ["key"] = "value" };
+        var values = ParseJsonElement("""{"key":"value"}""");
         var timeout = TimeSpan.FromSeconds(12.5);
 
         var release = upgrade
@@ -452,8 +463,9 @@ public sealed class HelmClientTests
 
         var values = client.GetValues("web");
 
-        values["replicas"].GetInt32().ShouldBe(3);
-        values["enabled"].GetBoolean().ShouldBeTrue();
+        values.ValueKind.ShouldBe(JsonValueKind.Object);
+        values.GetProperty("replicas").GetInt32().ShouldBe(3);
+        values.GetProperty("enabled").GetBoolean().ShouldBeTrue();
         request().GetProperty("namespace").GetString().ShouldBe("apps");
         request().GetProperty("operation").GetString().ShouldBe("values");
     }
@@ -609,7 +621,9 @@ public sealed class HelmClientTests
         client.History("web").ShouldBeEmpty();
         client.RepoList().ShouldBeEmpty();
         client.SearchRepo("chart").ShouldBeEmpty();
-        client.GetValues("web").ShouldBeEmpty();
+        var values = client.GetValues("web");
+        values.ValueKind.ShouldBe(JsonValueKind.Object);
+        values.EnumerateObject().Any().ShouldBeFalse();
         client.Template("web", "chart").ShouldBeEmpty();
         client.GetManifest("web").ShouldBeEmpty();
     }
@@ -689,6 +703,12 @@ public sealed class HelmClientTests
         });
         readRequest = () => captured ?? throw new InvalidOperationException("No native request was captured.");
         return client;
+    }
+
+    private static JsonElement ParseJsonElement(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
     }
 
     private sealed class FakeNativeApi(string? response) : IHelmNativeApi

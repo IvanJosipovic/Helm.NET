@@ -18,6 +18,7 @@ Native libraries are included for Windows, Linux, and macOS on x64 and ARM64.
 
 ```csharp
 using Helm.NET;
+using System.Text.Json;
 
 var helm = new HelmClient(new HelmClientOptions
 {
@@ -29,10 +30,15 @@ helm.RepoUpdate();
 
 var charts = helm.SearchRepo("nginx", versions: true);
 var preview = helm.Template("preview", "bitnami/nginx");
-var release = helm.Install("my-release", "bitnami/nginx", wait: true);
+using var valuesJson = JsonDocument.Parse("""{"replicaCount":2}""");
+var release = helm.Install("my-release", "bitnami/nginx",
+    setValues: valuesJson.RootElement,
+    wait: true);
 
 var status = helm.Status("my-release");
 var manifest = helm.GetManifest("my-release");
+var values = helm.GetValues("my-release");
+var replicas = values.GetProperty("replicaCount").GetInt32();
 ```
 
 ## API
@@ -44,6 +50,8 @@ var manifest = helm.GetManifest("my-release");
 | Repositories | `RepoAdd`, `RepoList`, `RepoRemove`, `RepoUpdate`, `SearchRepo` |
 
 Methods return typed .NET values. `HelmRelease` includes chart name/version, app version, revision, description, notes, resources, and hooks when Helm provides them.
+
+`setValues` accepts a `JsonElement` containing a JSON object. `GetValues` returns that object as a `JsonElement`; pass `revision` to read an older release revision or `all: true` to include chart defaults.
 
 `namespaceName` can be supplied per call. If omitted, `HelmClientOptions.DefaultNamespace` applies. `List(allNamespaces: true)` lists releases across namespaces.
 
