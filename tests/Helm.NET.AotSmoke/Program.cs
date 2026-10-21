@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using Helm.NET;
+using Helm.NET.Scenarios;
 
 var chartDirectory = Path.Combine(Path.GetTempPath(), $"helm-net-aot-{Guid.NewGuid():N}");
 Directory.CreateDirectory(Path.Combine(chartDirectory, "templates"));
@@ -18,15 +18,8 @@ try
         "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  setting: {{ .Values.setting | quote }}\n");
 
     var helm = new HelmClient(new HelmClientOptions { Namespace = "helm-net-aot" });
-    if (clusterLifecycle)
-    {
-        RunClusterLifecycle(helm, chartDirectory);
-    }
-    else
-    {
-        var manifest = helm.Template("aot-smoke", chartDirectory);
-        Require(manifest.Contains("name: aot-smoke", StringComparison.Ordinal), $"Unexpected rendered manifest:\n{manifest}");
-    }
+    using var repository = new LocalHelmRepository("apiVersion: v1\nentries:\n  aot-smoke:\n  - apiVersion: v2\n    name: aot-smoke\n    version: 1.0.0\n    urls:\n    - aot-smoke-1.0.0.tgz\n");
+    HelmClientScenarios.Run(helm, options => new HelmClient(options), chartDirectory, repository.Url, clusterLifecycle);
 
     Console.WriteLine(clusterLifecycle
         ? "NativeAOT Helm operation smoke test passed."
@@ -38,92 +31,15 @@ finally
     Directory.Delete(chartDirectory, recursive: true);
 }
 
-static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
-{
-    const string releaseName = "aot-smoke";
-    var manifest = helm.Template(
-        releaseName,
-        chartDirectory,
-        valuesFiles: [Path.Combine(chartDirectory, "smoke-values.yaml")],
-        values: new Dictionary<string, object?> { ["setting"] = "rendered" });
-    Require(manifest.Contains("setting: \"rendered\"", StringComparison.Ordinal), "Template did not apply its supplied values.");
-
-    var installed = helm.Install(
-        releaseName,
-        chartDirectory,
-        values: new Dictionary<string, object?> { ["setting"] = "installed" },
-        createNamespace: true,
-        wait: true,
-        timeout: TimeSpan.FromMinutes(1));
-    Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
-    Require(helm.ListReleases().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
-    Require(helm.ListReleases(allNamespaces: true, filter: "^aot-smoke$").Any(release => release.Name == releaseName), "The release is missing from the filtered all-namespaces list.");
-    Require(helm.Status(releaseName).Status == "deployed", "Status did not report the installed release as deployed.");
-    RequireValue(helm.GetValues(releaseName), "installed");
-
-    var upgraded = helm.Upgrade(
-        releaseName,
-        chartDirectory,
-        values: new Dictionary<string, object?> { ["setting"] = "upgraded" },
-        installIfMissing: true,
-        wait: true);
-    Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
-    RequireValue(helm.GetValues(releaseName), "upgraded");
-    Require(helm.History(releaseName).Count >= 2, "Release history did not include the install and upgrade revisions.");
-
-    helm.Rollback(releaseName, revision: 1, wait: true);
-    RequireValue(helm.GetValues(releaseName), "installed");
-    helm.Rollback(releaseName, revision: 2);
-    RequireValue(helm.GetValues(releaseName), "upgraded");
-
-    var secondaryRelease = "aot-smoke-nowait";
-    helm.Upgrade(secondaryRelease, chartDirectory, installIfMissing: true);
-    Require(helm.ListReleases().Any(release => release.Name == secondaryRelease), "Upgrade with install-if-missing did not create a release.");
-    helm.Uninstall(secondaryRelease);
-
-    RunRepositoryOperations(chartDirectory);
-
-    helm.Uninstall(releaseName, wait: true);
-    Require(!helm.ListReleases().Any(release => release.Name == releaseName), "The release still appears after uninstall.");
-}
-
-static void RunRepositoryOperations(string chartDirectory)
-{
-    var repositoryDirectory = Path.Combine(chartDirectory, "repository-config");
-    Directory.CreateDirectory(repositoryDirectory);
-    using var repository = new LocalHelmRepository();
-    var helm = new HelmClient(new HelmClientOptions
-    {
-        RepositoryConfig = Path.Combine(repositoryDirectory, "repositories.yaml"),
-        RepositoryCache = Path.Combine(repositoryDirectory, "cache")
-    });
-
-    helm.AddRepository("aot-smoke", repository.Url);
-    Require(helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The added chart repository is missing.");
-    helm.UpdateRepositories();
-    helm.RemoveRepository("aot-smoke");
-    Require(!helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
-}
-
-static void RequireValue(IReadOnlyDictionary<string, JsonElement> values, string expected)
-{
-    Require(values.TryGetValue("setting", out var setting) && setting.GetString() == expected, $"Unexpected release values: {values}");
-}
-
-static void Require(bool condition, string message)
-{
-    if (!condition)
-        throw new InvalidOperationException(message);
-}
-
 sealed class LocalHelmRepository : IDisposable
 {
-    private const string Index = "apiVersion: v1\nentries: {}\n";
     private readonly HttpListener _listener = new();
     private readonly Task _server;
+    private readonly string _index;
 
-    public LocalHelmRepository()
+    public LocalHelmRepository(string index = "apiVersion: v1\nentries: {}\n")
     {
+        _index = index;
         int port;
         using (var portReservation = new TcpListener(IPAddress.Loopback, 0))
         {
@@ -156,12 +72,12 @@ sealed class LocalHelmRepository : IDisposable
             {
                 context = _listener.GetContext();
             }
-            catch (HttpListenerException) when (!_listener.IsListening)
+            catch (HttpListenerException)
             {
                 return;
             }
 
-            var body = Encoding.UTF8.GetBytes(Index);
+            var body = Encoding.UTF8.GetBytes(_index);
             context.Response.ContentType = "application/yaml";
             context.Response.ContentLength64 = body.Length;
             context.Response.OutputStream.Write(body);

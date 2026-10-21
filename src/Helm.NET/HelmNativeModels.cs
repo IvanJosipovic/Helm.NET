@@ -26,7 +26,9 @@ internal sealed record NativeHelmRequest(
     string? RepositoryName = null,
     [property: JsonPropertyName("repositoryUrl")] string? RepositoryURL = null,
     string? RepositoryUsername = null,
-    string? RepositoryPassword = null);
+    string? RepositoryPassword = null,
+    string? Version = null,
+    string? SearchTerm = null);
 
 internal sealed class NativeHelmAck { }
 
@@ -39,7 +41,7 @@ internal sealed class NativeHelmRelease
     public string Status { get; init; } = string.Empty;
     public string Chart { get; init; } = string.Empty;
     [JsonPropertyName("app_version")] public string AppVersion { get; init; } = string.Empty;
-    public string Manifest { get; init; } = string.Empty;
-
-    public HelmRelease ToHelmRelease() => new(Name, Namespace, Revision, Updated, Status, Chart, AppVersion);
+    public string ChartName { get; init; } = string.Empty;
+    public string ChartVersion { get; init; } = string.Empty;
+    public HelmRelease ToHelmRelease() => new(Name, Namespace, Revision, Updated, Status, Chart, AppVersion, ChartName, ChartVersion);
 }

@@ -140,6 +140,72 @@ func TestExecuteListsEmptyReleasesInKindCluster(t *testing.T) {
 	}
 }
 
+func TestExecuteListsReleasesAcrossNamespacesInKindCluster(t *testing.T) {
+	if os.Getenv("HELM_SHIM_TEST_CLUSTER") != "true" {
+		t.Skip("requires the Kind cluster configured by go-test CI")
+	}
+
+	chartDir := filepath.Join(t.TempDir(), "chart")
+	if err := os.MkdirAll(filepath.Join(chartDir, "templates"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte("apiVersion: v2\nname: integration\nversion: 1.0.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chartDir, "templates", "configmap.yaml"), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const releaseName = "all-namespaces-regression"
+	const otherNamespace = "helm-shim-list-regression"
+	namespaces := []string{"default", "kube-system", otherNamespace}
+	t.Cleanup(func() {
+		for _, namespace := range namespaces {
+			_, _ = execute(request{Operation: "uninstall", Namespace: namespace, ReleaseName: releaseName})
+		}
+	})
+	for _, namespace := range namespaces {
+		if _, err := execute(request{
+			Operation: "install", Namespace: namespace, ReleaseName: releaseName,
+			Chart: chartDir, CreateNamespace: namespace == otherNamespace,
+		}); err != "" {
+			t.Fatalf("install in %s failed: %s", namespace, err)
+		}
+	}
+	// The configured namespace is intentionally empty. AllNamespaces must change
+	// the storage namespace as well as the action option.
+	all, err := execute(request{Operation: "list", Namespace: "helm-shim-empty-list", AllNamespaces: true, Filter: "^" + releaseName + "$"})
+	if err != "" {
+		t.Fatalf("all-namespace list failed: %s", err)
+	}
+	allReleases, ok := all.([]map[string]any)
+	if !ok || len(allReleases) != len(namespaces) {
+		t.Fatalf("expected one matching release in each namespace, got %#v", all)
+	}
+	seen := make(map[string]bool, len(namespaces))
+	for _, release := range allReleases {
+		if release["name"] != releaseName {
+			t.Errorf("unexpected release name: %#v", release)
+		}
+		seen[release["namespace"].(string)] = true
+	}
+	for _, namespace := range namespaces {
+		if !seen[namespace] {
+			t.Errorf("all-namespace list omitted namespace %q: %#v", namespace, allReleases)
+		}
+	}
+
+	// Without AllNamespaces, the same request remains scoped to the configured namespace.
+	scoped, err := execute(request{Operation: "list", Namespace: "kube-system", Filter: "^" + releaseName + "$"})
+	if err != "" {
+		t.Fatalf("namespace-scoped list failed: %s", err)
+	}
+	scopedReleases, ok := scoped.([]map[string]any)
+	if !ok || len(scopedReleases) != 1 || scopedReleases[0]["namespace"] != "kube-system" {
+		t.Fatalf("expected only kube-system release, got %#v", scoped)
+	}
+}
+
 func TestExecuteReleaseLifecycleInKindCluster(t *testing.T) {
 	if os.Getenv("HELM_SHIM_TEST_CLUSTER") != "true" {
 		t.Skip("requires the Kind cluster configured by go-test CI")
@@ -380,7 +446,7 @@ func TestReleaseViewMapsReleaseData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != "4" || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["app_version"] != "2.0" || view["manifest"] != "rendered" {
+	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != "4" || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["chartName"] != "nginx" || view["chartVersion"] != "1.2.3" || view["app_version"] != "2.0" {
 		t.Fatalf("unexpected release view: %#v", view)
 	}
 	if !view["updated"].(time.Time).Equal(deployed) {

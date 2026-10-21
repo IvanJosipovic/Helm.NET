@@ -10,7 +10,9 @@ public sealed record HelmRelease(
     string Updated,
     string Status,
     string Chart,
-    [property: JsonPropertyName("app_version")] string AppVersion);
+    [property: JsonPropertyName("app_version")] string AppVersion,
+    string ChartName = "",
+    string ChartVersion = "");
 
 /// <summary>Represents a failed Helm action.</summary>
 public sealed class HelmActionException : Exception
