@@ -45,6 +45,7 @@ public static partial class HelmClientScenarios
         private readonly HttpListener _listener = new();
         private readonly Task _server;
         private readonly string _index;
+        private int _stopping;
 
         public LocalHelmRepository(string index = "apiVersion: v1\nentries: {}\n")
         {
@@ -66,6 +67,7 @@ public static partial class HelmClientScenarios
 
         public void Dispose()
         {
+            Interlocked.Exchange(ref _stopping, 1);
             _listener.Stop();
             try
             {
@@ -86,7 +88,7 @@ public static partial class HelmClientScenarios
                 {
                     context = _listener.GetContext();
                 }
-                catch (HttpListenerException exception) when (!_listener.IsListening || exception.ErrorCode == 995)
+                catch (HttpListenerException) when (Volatile.Read(ref _stopping) != 0)
                 {
                     return;
                 }

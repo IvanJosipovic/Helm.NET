@@ -169,6 +169,7 @@ internal sealed class VersionedChartRepository : IDisposable
     private readonly HttpListener _listener = new();
     private readonly Task _server;
     private readonly Dictionary<string, byte[]> _responses = new(StringComparer.Ordinal);
+    private int _stopping;
     private int _requestCount;
 
     internal VersionedChartRepository()
@@ -207,6 +208,7 @@ internal sealed class VersionedChartRepository : IDisposable
 
     public void Dispose()
     {
+        Interlocked.Exchange(ref _stopping, 1);
         _listener.Stop();
         try
         {
@@ -259,7 +261,7 @@ internal sealed class VersionedChartRepository : IDisposable
             {
                 context = _listener.GetContext();
             }
-            catch (HttpListenerException exception) when (!_listener.IsListening || exception.ErrorCode == 995)
+            catch (HttpListenerException) when (Volatile.Read(ref _stopping) != 0)
             {
                 return;
             }
