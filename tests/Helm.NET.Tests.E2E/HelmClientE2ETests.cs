@@ -12,7 +12,7 @@ public sealed class HelmClientE2ETests
 
         var helm = new HelmClient(new HelmClientOptions
         {
-            Namespace = $"helm-net-e2e-{Guid.NewGuid():N}"
+            DefaultNamespace = $"helm-net-e2e-{Guid.NewGuid():N}"
         });
 
         HelmClientScenarios.RunAll(helm, options => new HelmClient(options), clusterLifecycle: true);

@@ -13,7 +13,7 @@ public sealed class HelmClientAotE2ETests
             Environment.GetEnvironmentVariable("HELM_TEST_CLUSTER"),
             "true",
             StringComparison.OrdinalIgnoreCase);
-        var helm = new HelmClient(new HelmClientOptions { Namespace = "helm-net-aot" });
+        var helm = new HelmClient(new HelmClientOptions { DefaultNamespace = "helm-net-aot" });
 
         HelmClientScenarios.RunAll(helm, options => new HelmClient(options), clusterLifecycle);
     }

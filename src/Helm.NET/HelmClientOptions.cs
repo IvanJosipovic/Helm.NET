@@ -9,8 +9,8 @@ public sealed class HelmClientOptions
     /// <summary>Kubernetes context name, or <see langword="null"/> to use the current context.</summary>
     public string? KubeContext { get; init; }
 
-    /// <summary>Default namespace for Helm operations.</summary>
-    public string Namespace { get; init; } = "default";
+    /// <summary>Default namespace for Helm operations when a method call does not specify one.</summary>
+    public string DefaultNamespace { get; init; } = "default";
 
     /// <summary>Path to Helm's repository configuration file.</summary>
     public string? RepositoryConfig { get; init; }

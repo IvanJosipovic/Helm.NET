@@ -20,7 +20,7 @@ public static partial class HelmClientScenarios
             File.WriteAllText(Path.Combine(chartDirectory, "smoke-values.yaml"), "setting: from-file\n");
             File.WriteAllText(
                 Path.Combine(chartDirectory, "templates", "configmap.yaml"),
-                "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  setting: {{ .Values.setting | quote }}\n");
+                "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  setting: {{ .Values.setting | quote }}\n  namespace: {{ .Release.Namespace | quote }}\n  customApi: {{ .Capabilities.APIVersions.Has \"example.io/v1\" | quote }}\n  kubeVersion: {{ .Capabilities.KubeVersion.Version | quote }}\n  upgrade: {{ .Release.IsUpgrade | quote }}\n");
 
             using var repository = new LocalHelmRepository(
                 "apiVersion: v1\nentries:\n  aot-smoke:\n  - apiVersion: v2\n    name: aot-smoke\n    version: 1.0.0\n    urls:\n    - aot-smoke-1.0.0.tgz\n");
@@ -105,11 +105,20 @@ public static partial class HelmClientScenarios
         var manifest = helm.Template(
             "aot-smoke",
             chartDirectory,
-            valuesFiles: [Path.Combine(chartDirectory, "smoke-values.yaml")],
-            values: new Dictionary<string, object?> { ["setting"] = "rendered" },
-            version: "1.0.0");
+            values: [Path.Combine(chartDirectory, "smoke-values.yaml")],
+            setValues: new Dictionary<string, object?> { ["setting"] = "rendered" },
+            version: "1.0.0",
+            namespaceName: "render-preview",
+            apiVersions: ["example.io/v1"],
+            kubeVersion: "1.30.0",
+            dependencyUpdate: true,
+            isUpgrade: true);
         Require(manifest.Contains("name: aot-smoke", StringComparison.Ordinal), $"Unexpected rendered manifest:\n{manifest}");
         Require(manifest.Contains("setting: \"rendered\"", StringComparison.Ordinal), "Template did not apply its supplied values.");
+        Require(manifest.Contains("namespace: \"render-preview\"", StringComparison.Ordinal), "Template did not use its namespace override.");
+        Require(manifest.Contains("customApi: \"true\"", StringComparison.Ordinal), "Template did not use the supplied API versions.");
+        Require(manifest.Contains("kubeVersion: \"v1.30.0\"", StringComparison.Ordinal), "Template did not use its Kubernetes version override.");
+        Require(manifest.Contains("upgrade: \"true\"", StringComparison.Ordinal), "Template did not set the upgrade release context.");
 
         var repositoryDirectory = Path.Combine(chartDirectory, "repository-config");
         Directory.CreateDirectory(repositoryDirectory);
@@ -119,13 +128,13 @@ public static partial class HelmClientScenarios
             RepositoryCache = Path.Combine(repositoryDirectory, "cache")
         });
 
-        client.AddRepository("aot-smoke", repositoryUrl);
-        Require(client.ListRepositories().Any(item => item.Name == "aot-smoke"), "The added chart repository is missing.");
-        client.UpdateRepositories();
-        var result = client.SearchCharts("aot-smoke").Single();
+        client.RepoAdd("aot-smoke", repositoryUrl);
+        Require(client.RepoList().Any(item => item.Name == "aot-smoke"), "The added chart repository is missing.");
+        client.RepoUpdate();
+        var result = client.SearchRepo("aot-smoke").Single();
         Require(result.Reference == "aot-smoke/aot-smoke" && result.ChartName == "aot-smoke" && result.Version == "1.0.0", $"Unexpected chart search result: {result}");
-        client.RemoveRepository("aot-smoke");
-        Require(!client.ListRepositories().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
+        client.RepoRemove("aot-smoke");
+        Require(!client.RepoList().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
     }
 
     private static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
@@ -134,43 +143,50 @@ public static partial class HelmClientScenarios
         var installed = helm.Install(
             releaseName,
             chartDirectory,
-            values: new Dictionary<string, object?> { ["setting"] = "installed" },
+            setValues: new Dictionary<string, object?> { ["setting"] = "installed" },
             createNamespace: true,
             wait: true,
+            waitStrategy: "watcher",
+            takeOwnership: true,
             timeout: TimeSpan.FromMinutes(1),
             version: "1.0.0");
         Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
         Require(installed.ChartName == "aot-smoke" && installed.ChartVersion == "1.0.0", $"Unexpected chart metadata: {installed}");
         Require(helm.GetManifest(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "GetManifest did not return the stored release manifest.");
-        Require(helm.TemplateRelease(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "TemplateRelease did not render the stored chart.");
-        Require(helm.ListReleases().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
-        Require(helm.ListReleases(allNamespaces: true, filter: "^aot-smoke$").Any(release => release.Name == releaseName), "The release is missing from the filtered all-namespaces list.");
+        Require(helm.List().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
+        Require(helm.List(allNamespaces: true, filter: "^aot-smoke$").Any(release => release.Name == releaseName), "The release is missing from the filtered all-namespaces list.");
         Require(helm.Status(releaseName).Status == "deployed", "Status did not report the installed release as deployed.");
         RequireValue(helm.GetValues(releaseName), "installed");
 
         var upgraded = helm.Upgrade(
             releaseName,
             chartDirectory,
-            values: new Dictionary<string, object?> { ["setting"] = "upgraded" },
-            installIfMissing: true,
+            setValues: new Dictionary<string, object?> { ["setting"] = "upgraded" },
+            install: true,
             wait: true,
+            waitStrategy: "watcher",
             version: "1.0.0");
         Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
         RequireValue(helm.GetValues(releaseName), "upgraded");
         Require(helm.History(releaseName).Count >= 2, "Release history did not include the install and upgrade revisions.");
 
-        helm.Rollback(releaseName, revision: 1, wait: true);
+        helm.Rollback(releaseName, revision: 1, wait: true, waitStrategy: "watcher", timeout: TimeSpan.FromMinutes(1), waitForJobs: true, historyMax: 10, description: "scenario rollback");
+        RequireValue(helm.GetValues(releaseName), "installed");
+        helm.Rollback(releaseName, revision: 2, dryRun: "client");
         RequireValue(helm.GetValues(releaseName), "installed");
         helm.Rollback(releaseName, revision: 2);
         RequireValue(helm.GetValues(releaseName), "upgraded");
 
         const string secondaryRelease = "aot-smoke-nowait";
-        helm.Upgrade(secondaryRelease, chartDirectory, installIfMissing: true, version: "1.0.0");
-        Require(helm.ListReleases().Any(release => release.Name == secondaryRelease), "Upgrade with install-if-missing did not create a release.");
-        helm.Uninstall(secondaryRelease);
+        helm.Upgrade(secondaryRelease, chartDirectory, install: true, version: "1.0.0");
+        Require(helm.List().Any(release => release.Name == secondaryRelease), "Upgrade with install-if-missing did not create a release.");
+        helm.Uninstall(secondaryRelease, dryRun: true, cascade: "foreground");
+        Require(helm.List().Any(release => release.Name == secondaryRelease), "Uninstall dry-run changed the release.");
+        helm.Uninstall(secondaryRelease, ignoreNotFound: true);
+        helm.Uninstall(secondaryRelease, ignoreNotFound: true);
 
-        helm.Uninstall(releaseName, wait: true);
-        Require(!helm.ListReleases().Any(release => release.Name == releaseName), "The release still appears after uninstall.");
+        helm.Uninstall(releaseName, wait: true, waitStrategy: "watcher", timeout: TimeSpan.FromMinutes(1), cascade: "foreground");
+        Require(!helm.List().Any(release => release.Name == releaseName), "The release still appears after uninstall.");
     }
 
     private static void RequireValue(IReadOnlyDictionary<string, JsonElement> values, string expected) =>

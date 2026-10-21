@@ -272,7 +272,7 @@ func TestOCIChartVersionsAcrossTemplateInstallAndUpgrade(t *testing.T) {
 	}
 }
 
-func TestStoredReleaseLosesDependencyTemplates(t *testing.T) {
+func TestGetManifestUsesStoredManifestWhenDependencyTemplatesAreMissing(t *testing.T) {
 	cfg := versionTestConfiguration()
 	settings := cli.New()
 	parent := &chart.Chart{
@@ -321,11 +321,5 @@ func TestStoredReleaseLosesDependencyTemplates(t *testing.T) {
 	}, settings, cfg, time.Minute)
 	if message != "" || !strings.Contains(data.(string), "name: stored-remote") {
 		t.Fatalf("stored manifest should remain usable: %#v, %s", data, message)
-	}
-	_, message = executeAction(context.Background(), request{
-		Operation: "templateRelease", ReleaseName: "stored",
-	}, settings, cfg, time.Minute)
-	if !strings.Contains(message, `no template "remote-cluster.fullname"`) {
-		t.Fatalf("expected the missing stored subchart helper error, got %q", message)
 	}
 }
