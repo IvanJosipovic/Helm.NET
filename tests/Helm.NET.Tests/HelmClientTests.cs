@@ -307,6 +307,16 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void NativeLibraryExecutesAndReturnsItsActionError()
+    {
+        var response = HelmNativeInterop.Invoke(
+            Encoding.UTF8.GetBytes("{\"operation\":\"unsupported\"}"),
+            HelmNativeInterop.DefaultApi);
+
+        response.ShouldContain("unsupported operation: unsupported");
+    }
+
+    [Fact]
     public void NativeCallThrowsWhenNativeReturnsNull()
     {
         var native = new FakeNativeApi(null);
