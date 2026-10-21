@@ -465,14 +465,22 @@ func loadChartCatalog(settings *cli.EnvSettings, repositoryName string) ([]map[s
 					return nil, fmt.Errorf("chart index for repository %q contains an empty version entry for chart %q", entry.Name, chartName)
 				}
 				results = append(results, map[string]any{
-					"reference": entry.Name + "/" + chartName,
-					"chartName": chartName,
-					"version":   version.Version,
+					"reference":   entry.Name + "/" + chartName,
+					"chartName":   chartName,
+					"version":     version.Version,
+					"description": chartDescription(version),
 				})
 			}
 		}
 	}
 	return results, nil
+}
+
+func chartDescription(version *repo.ChartVersion) string {
+	if version == nil || version.Metadata == nil {
+		return ""
+	}
+	return version.Metadata.Description
 }
 
 func loadRepositoryFile(path string) (*repo.File, error) {
