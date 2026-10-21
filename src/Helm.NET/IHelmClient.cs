@@ -59,6 +59,9 @@ public interface IHelmClient
     /// <summary>Searches configured repository indexes for charts and their available versions.</summary>
     IReadOnlyList<HelmChartSearchResult> SearchCharts(string searchTerm);
 
+    /// <summary>Lists chart versions from cached indexes, optionally for one exact configured repository name.</summary>
+    IReadOnlyList<HelmChartSearchResult> ListCharts(string? repositoryName = null);
+
     /// <summary>Adds or updates a chart repository.</summary>
     void AddRepository(string name, string url, string? username = null, string? password = null);
 

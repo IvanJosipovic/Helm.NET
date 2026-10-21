@@ -103,6 +103,10 @@ public sealed class HelmClient : IHelmClient
     public IReadOnlyList<HelmChartSearchResult> SearchCharts(string searchTerm) =>
         Invoke(new NativeHelmRequest("chartSearch", SearchTerm: searchTerm), NativeJsonContext.Default.HelmChartSearchResultArray) ?? [];
 
+    /// <summary>Lists chart versions from cached indexes, optionally for one exact configured repository name.</summary>
+    public IReadOnlyList<HelmChartSearchResult> ListCharts(string? repositoryName = null) =>
+        Invoke(new NativeHelmRequest("chartList", RepositoryName: repositoryName), NativeJsonContext.Default.HelmChartSearchResultArray) ?? [];
+
     /// <summary>Adds or updates a chart repository.</summary>
     public void AddRepository(string name, string url, string? username = null, string? password = null) =>
         _ = Invoke(new NativeHelmRequest("repoAdd", RepositoryName: name, RepositoryURL: url, RepositoryUsername: username, RepositoryPassword: password), NativeJsonContext.Default.NativeHelmAck);

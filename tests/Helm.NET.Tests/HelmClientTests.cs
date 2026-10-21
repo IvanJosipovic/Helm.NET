@@ -274,6 +274,39 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void ListChartsMapsResultsAndForwardsExactRepositoryName()
+    {
+        const string response = """
+            {"data":[
+                {"reference":"stable/nginx","chartName":"nginx","version":"1.2.3"},
+                {"reference":"stable/redis","chartName":"redis","version":"7.0.0"}
+            ]}
+            """;
+        var client = CreateClient(response, out var request);
+
+        client.ListCharts("stable").ShouldBe([
+            new HelmChartSearchResult("stable/nginx", "nginx", "1.2.3"),
+            new HelmChartSearchResult("stable/redis", "redis", "7.0.0")
+        ]);
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("chartList");
+        json.GetProperty("repositoryName").GetString().ShouldBe("stable");
+    }
+
+    [Fact]
+    public void ListChartsDefaultsToAllRepositories()
+    {
+        var client = CreateClient("{\"data\":[]}", out var request);
+
+        client.ListCharts().ShouldBeEmpty();
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("chartList");
+        json.GetProperty("repositoryName").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public void AddRepositorySendsCredentials()
     {
         var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
@@ -455,6 +488,7 @@ public sealed class HelmClientTests
         client.History("web").ShouldBeEmpty();
         client.ListRepositories().ShouldBeEmpty();
         client.SearchCharts("chart").ShouldBeEmpty();
+        client.ListCharts().ShouldBeEmpty();
         client.GetValues("web").ShouldBeEmpty();
         client.Template("web", "chart").ShouldBeEmpty();
         client.TemplateRelease("web").ShouldBeEmpty();

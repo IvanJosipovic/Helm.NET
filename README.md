@@ -33,6 +33,8 @@ var release = helm.Install("my-release", "bitnami/nginx", createNamespace: true,
 
 // Search indexes return resolvable references and one result per version.
 var charts = helm.SearchCharts("cilium");
+// ListCharts reads the cached indexes without requiring a search term or refreshing them.
+var bitnamiCharts = helm.ListCharts("bitnami");
 var rendered = helm.Template("preview", "cilium/cilium", version: "1.20.3");
 
 // Render the chart and values from a stored release revision without resolving a repository reference.
@@ -50,7 +52,21 @@ foreach (var release in releases)
     Console.WriteLine($"{release.Name}: {release.Status} ({release.Chart})");
 ```
 
-The action API supports `ListReleases`, `SearchCharts`, `Template`, `TemplateRelease`, `GetManifest`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. `HelmRelease.ChartName` and `ChartVersion` expose the chart metadata separately from the display string in `Chart`. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
+The action API supports `ListReleases`, `ListRepositories`, `ListCharts`, `SearchCharts`, `Template`, `TemplateRelease`, `GetManifest`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. `HelmRelease.ChartName` and `ChartVersion` expose the chart metadata separately from the display string in `Chart`. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
+
+### List repository charts
+
+`ListCharts()` returns one result per chart version across configured Helm chart repositories. Pass an exact repository name to list a single repository; references remain repository-qualified, even when different repositories contain a chart with the same name:
+
+```csharp
+var repositories = helm.ListRepositories();
+var charts = helm.ListCharts(repositoryName: "bitnami");
+var nginxVersions = charts
+    .Where(chart => chart.Reference == "bitnami/nginx")
+    .Select(chart => chart.Version);
+```
+
+Chart catalogs are read only from the indexes already present in Helm's repository cache. `ListCharts` performs no network requests and does not update indexes; call `UpdateRepositories()` when you want to refresh them. With no configured repositories, an unfiltered listing is empty. An unknown repository name, or a configured repository with a missing or malformed cached index, throws `HelmActionException` identifying the repository. This API enumerates indexed chart repositories only; it does not enumerate OCI registries. Use `SearchCharts(searchTerm)` when substring search across configured repository indexes is desired.
 
 ### Select a chart version
 

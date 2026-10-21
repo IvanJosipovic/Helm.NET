@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,7 +85,7 @@ func handleJSON(input []byte) (encoded []byte) {
 
 func execute(req request) (any, string) {
 	switch req.Operation {
-	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
+	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "chartList", "repoAdd", "repoRemove", "repoUpdate":
 	default:
 		return nil, "unsupported operation: " + req.Operation
 	}
@@ -159,27 +160,33 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		}
 		repositoryFileMu.Lock()
 		defer repositoryFileMu.Unlock()
-		file, err := loadRepositoryFile(settings.RepositoryConfig)
+		charts, err := loadChartCatalog(settings, "")
 		if err != nil {
 			return nil, err.Error()
 		}
 		term := strings.ToLower(req.SearchTerm)
 		results := make([]map[string]any, 0)
-		for _, entry := range file.Repositories {
-			indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
-			index, err := repo.LoadIndexFile(indexPath)
-			if err != nil {
-				return nil, fmt.Sprintf("failed to load index for repository %s: %v", entry.Name, err)
-			}
-			for chartName, versions := range index.Entries {
-				if !strings.Contains(strings.ToLower(chartName), term) {
-					continue
-				}
-				for _, version := range versions {
-					results = append(results, map[string]any{"reference": entry.Name + "/" + chartName, "chartName": chartName, "version": version.Version})
-				}
+		for _, chart := range charts {
+			if strings.Contains(strings.ToLower(chart["chartName"].(string)), term) {
+				results = append(results, chart)
 			}
 		}
+		return results, ""
+	case "chartList":
+		repositoryFileMu.Lock()
+		defer repositoryFileMu.Unlock()
+		results, err := loadChartCatalog(settings, req.RepositoryName)
+		if err != nil {
+			return nil, err.Error()
+		}
+		sort.Slice(results, func(i, j int) bool {
+			leftReference := results[i]["reference"].(string)
+			rightReference := results[j]["reference"].(string)
+			if leftReference != rightReference {
+				return leftReference < rightReference
+			}
+			return results[i]["version"].(string) < results[j]["version"].(string)
+		})
 		return results, ""
 	case "templateRelease":
 		get := action.NewGet(cfg)
@@ -420,6 +427,52 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		return values, ""
 	}
 	return nil, errors.New("unreachable operation").Error()
+}
+
+func loadChartCatalog(settings *cli.EnvSettings, repositoryName string) ([]map[string]any, error) {
+	file, err := loadRepositoryFile(settings.RepositoryConfig)
+	if err != nil {
+		return nil, err
+	}
+	entries := file.Repositories
+	if repositoryName != "" {
+		var selected *repo.Entry
+		for _, entry := range entries {
+			if entry != nil && entry.Name == repositoryName {
+				selected = entry
+				break
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("configured repository %q was not found; check ListRepositories() for exact repository names", repositoryName)
+		}
+		entries = []*repo.Entry{selected}
+	}
+
+	results := make([]map[string]any, 0)
+	for _, entry := range entries {
+		if entry == nil {
+			return nil, errors.New("repository configuration contains an empty repository entry")
+		}
+		indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
+		index, err := repo.LoadIndexFile(indexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load chart index for repository %q at %q: %w", entry.Name, indexPath, err)
+		}
+		for chartName, versions := range index.Entries {
+			for _, version := range versions {
+				if version == nil {
+					return nil, fmt.Errorf("chart index for repository %q contains an empty version entry for chart %q", entry.Name, chartName)
+				}
+				results = append(results, map[string]any{
+					"reference": entry.Name + "/" + chartName,
+					"chartName": chartName,
+					"version":   version.Version,
+				})
+			}
+		}
+	}
+	return results, nil
 }
 
 func loadRepositoryFile(path string) (*repo.File, error) {

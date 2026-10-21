@@ -26,11 +26,28 @@ public static partial class HelmClientScenarios
             };
             var helm = new HelmClient(options);
             helm.AddRepository("versions", repository.Url);
+            helm.AddRepository("versions-extra", repository.Url);
             helm.UpdateRepositories();
-            var charts = helm.SearchCharts("versioned");
-            Require(charts.Count == 3, "Expected three chart versions in the test repository.");
-            foreach (var version in VersionedChartRepository.Versions)
-                Require(charts.Any(chart => chart.Reference == "versions/versioned" && chart.Version == version), $"Search omitted version {version}.");
+            var requestCountAfterUpdate = repository.RequestCount;
+            var search = helm.SearchCharts("extra");
+            Require(search.Count == 4 && search.All(chart => chart.ChartName == "versioned-extra"), "Substring chart search did not preserve its existing behavior.");
+
+            var charts = helm.ListCharts();
+            Require(charts.Count == 10, $"Expected all chart versions from both configured repositories, got {charts.Count}.");
+            var expectedCatalog = new[]
+            {
+                "versions-extra/versioned-extra@1.0.0", "versions-extra/versioned-extra@2.0.0",
+                "versions-extra/versioned@1.0.0", "versions-extra/versioned@2.0.0", "versions-extra/versioned@3.0.0",
+                "versions/versioned-extra@1.0.0", "versions/versioned-extra@2.0.0",
+                "versions/versioned@1.0.0", "versions/versioned@2.0.0", "versions/versioned@3.0.0"
+            };
+            Require(charts.Select(chart => $"{chart.Reference}@{chart.Version}").SequenceEqual(expectedCatalog), "Chart listing was incomplete or not deterministically ordered.");
+            var selectedRepository = helm.ListCharts("versions");
+            Require(selectedRepository.Count == 5 && selectedRepository.All(chart => chart.Reference.StartsWith("versions/", StringComparison.Ordinal)), "Repository listing did not match the exact repository name.");
+            Require(helm.ListCharts("versions-extra").Count == 5, "A similarly named repository was not independently selectable.");
+            Require(charts.Any(chart => chart.Reference == "versions/versioned") && charts.Any(chart => chart.Reference == "versions-extra/versioned"), "Same-named charts from different repositories lost their qualified references.");
+            Require(repository.RequestCount == requestCountAfterUpdate, "Search or listing accessed the remote repository instead of cached indexes.");
+            RunCachedCatalogEdgeScenarios(directory);
 
             var valuesFile = Path.Combine(directory, "values.yaml");
             File.WriteAllText(valuesFile, "setting: from-file\nretained: from-file\n");
@@ -65,12 +82,37 @@ public static partial class HelmClientScenarios
                 RunVersionedDeployments(helm, chartReference, valuesFile, values, Preview);
 
             helm.RemoveRepository("versions");
-            Require(helm.ListRepositories().Count == 0, "Versioned repository was not removed.");
+            helm.RemoveRepository("versions-extra");
+            Require(helm.ListRepositories().Count == 0, "Versioned repositories were not removed.");
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static void RunCachedCatalogEdgeScenarios(string directory)
+    {
+        var noRepositories = new HelmClient(new HelmClientOptions
+        {
+            RepositoryConfig = Path.Combine(directory, "no-repositories.yaml"),
+            RepositoryCache = Path.Combine(directory, "no-repositories-cache")
+        });
+        Require(noRepositories.ListCharts().Count == 0, "Listing with no configured repositories should be empty.");
+
+        var repositoryConfig = Path.Combine(directory, "catalog-edge", "repositories.yaml");
+        var repositoryCache = Path.Combine(directory, "catalog-edge", "cache");
+        Directory.CreateDirectory(repositoryCache);
+        File.WriteAllText(repositoryConfig, "apiVersion: v1\nrepositories:\n- name: exact\n  url: http://not-contacted.invalid\n");
+        var client = new HelmClient(new HelmClientOptions { RepositoryConfig = repositoryConfig, RepositoryCache = repositoryCache });
+        File.WriteAllText(Path.Combine(repositoryCache, "exact-index.yaml"), "apiVersion: v1\nentries: {}\n");
+        Require(client.ListCharts().Count == 0, "A valid empty cached index should return an empty catalog.");
+        RequireActionFailure(() => client.ListCharts("ex"), "exact");
+
+        File.Delete(Path.Combine(repositoryCache, "exact-index.yaml"));
+        RequireActionFailure(() => client.ListCharts("exact"), "exact");
+        File.WriteAllText(Path.Combine(repositoryCache, "exact-index.yaml"), "apiVersion: v1\nentries: [\n");
+        RequireActionFailure(() => client.ListCharts("exact"), "exact");
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises public interface and compatibility overloads under NativeAOT.")]
@@ -166,19 +208,17 @@ public static partial class HelmClientScenarios
 internal sealed class VersionedChartRepository : IDisposable
 {
     internal static readonly string[] Versions = ["1.0.0", "2.0.0", "3.0.0"];
+    private static readonly string[] ExtraVersions = ["1.0.0", "2.0.0"];
     private readonly HttpListener _listener = new();
     private readonly Task _server;
     private readonly Dictionary<string, byte[]> _responses = new(StringComparer.Ordinal);
+    private int _requestCount;
 
     internal VersionedChartRepository()
     {
-        var index = new StringBuilder("apiVersion: v1\nentries:\n  versioned:\n");
-        foreach (var version in Versions)
-        {
-            var archive = $"versioned-{version}.tgz";
-            _responses.Add($"/{archive}", CreateChart(version));
-            index.Append(CultureInfo.InvariantCulture, $"  - apiVersion: v2\n    name: versioned\n    version: {version}\n    urls:\n    - {archive}\n");
-        }
+        var index = new StringBuilder("apiVersion: v1\nentries:\n");
+        AppendChartVersions(index, "versioned", Versions, includeArchives: true);
+        AppendChartVersions(index, "versioned-extra", ExtraVersions, includeArchives: false);
         _responses.Add("/index.yaml", Encoding.UTF8.GetBytes(index.ToString()));
         int port;
         using (var reservation = new TcpListener(IPAddress.Loopback, 0))
@@ -192,8 +232,21 @@ internal sealed class VersionedChartRepository : IDisposable
         _server = Task.Run(Serve);
     }
 
+    private void AppendChartVersions(StringBuilder index, string chartName, IEnumerable<string> versions, bool includeArchives)
+    {
+        index.Append(CultureInfo.InvariantCulture, $"  {chartName}:\n");
+        foreach (var version in versions)
+        {
+            var archive = $"{chartName}-{version}.tgz";
+            if (includeArchives)
+                _responses.Add($"/{archive}", CreateChart(version));
+            index.Append(CultureInfo.InvariantCulture, $"  - apiVersion: v2\n    name: {chartName}\n    version: {version}\n    urls:\n    - {archive}\n");
+        }
+    }
+
     internal string Url { get; }
     internal byte[] OlderChart => _responses["/versioned-1.0.0.tgz"];
+    internal int RequestCount => Volatile.Read(ref _requestCount);
 
     public void Dispose()
     {
@@ -253,6 +306,7 @@ internal sealed class VersionedChartRepository : IDisposable
             {
                 return;
             }
+            Interlocked.Increment(ref _requestCount);
             if (_responses.TryGetValue(context.Request.Url!.AbsolutePath, out var body))
             {
                 context.Response.ContentType = context.Request.Url.AbsolutePath.EndsWith(".tgz", StringComparison.Ordinal) ? "application/gzip" : "application/yaml";
