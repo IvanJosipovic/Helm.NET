@@ -60,7 +60,7 @@ jobs:
       - name: Run managed Kind E2E scenarios
         env:
           HELM_TEST_CLUSTER: "true"
-        run: dotnet test --project tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj
+        run: dotnet test --project "${{ github.workspace }}/tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj"
 
   native-aot:
     name: NativeAOT smoke tests
