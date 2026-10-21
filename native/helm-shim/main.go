@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +49,8 @@ type request struct {
 	RepositoryURL       string         `json:"repositoryUrl,omitempty"`
 	RepositoryUsername  string         `json:"repositoryUsername,omitempty"`
 	RepositoryPassword  string         `json:"repositoryPassword,omitempty"`
+	Version             string         `json:"version,omitempty"`
+	SearchTerm          string         `json:"searchTerm,omitempty"`
 }
 
 type result struct {
@@ -79,7 +83,7 @@ func handleJSON(input []byte) (encoded []byte) {
 
 func execute(req request) (any, string) {
 	switch req.Operation {
-	case "list", "template", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "repoAdd", "repoRemove", "repoUpdate":
+	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
 	default:
 		return nil, "unsupported operation: " + req.Operation
 	}
@@ -140,6 +144,68 @@ func execute(req request) (any, string) {
 			entries = append(entries, map[string]string{"name": entry.Name, "url": entry.URL})
 		}
 		return entries, ""
+	case "chartSearch":
+		if req.SearchTerm == "" {
+			return nil, "searchTerm is required"
+		}
+		repositoryFileMu.Lock()
+		defer repositoryFileMu.Unlock()
+		file, err := loadRepositoryFile(settings.RepositoryConfig)
+		if err != nil {
+			return nil, err.Error()
+		}
+		term := strings.ToLower(req.SearchTerm)
+		results := make([]map[string]any, 0)
+		for _, entry := range file.Repositories {
+			indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
+			index, err := repo.LoadIndexFile(indexPath)
+			if err != nil {
+				return nil, fmt.Sprintf("failed to load index for repository %s: %v", entry.Name, err)
+			}
+			for chartName, versions := range index.Entries {
+				if !strings.Contains(strings.ToLower(chartName), term) {
+					continue
+				}
+				for _, version := range versions {
+					results = append(results, map[string]any{"reference": entry.Name + "/" + chartName, "chartName": chartName, "version": version.Version})
+				}
+			}
+		}
+		return results, ""
+	case "templateRelease":
+		get := action.NewGet(cfg)
+		get.Version = req.Revision
+		stored, err := get.Run(req.ReleaseName)
+		if err != nil {
+			return nil, err.Error()
+		}
+		rel, ok := stored.(*releasev1.Release)
+		if !ok || rel == nil || rel.Chart == nil {
+			return nil, fmt.Sprintf("unexpected Helm release type %T", stored)
+		}
+		install := action.NewInstall(cfg)
+		install.ReleaseName = rel.Name
+		install.Namespace = rel.Namespace
+		install.DryRunStrategy = action.DryRunClient
+		install.DisableHooks = true
+		install.WaitStrategy = kube.HookOnlyStrategy
+		rendered, err := install.RunWithContext(ctx, rel.Chart, rel.Config)
+		if err != nil {
+			return nil, err.Error()
+		}
+		return rendered.(*releasev1.Release).Manifest, ""
+	case "getManifest":
+		get := action.NewGet(cfg)
+		get.Version = req.Revision
+		stored, err := get.Run(req.ReleaseName)
+		if err != nil {
+			return nil, err.Error()
+		}
+		rel, ok := stored.(*releasev1.Release)
+		if !ok || rel == nil {
+			return nil, fmt.Sprintf("unexpected Helm release type %T", stored)
+		}
+		return rel.Manifest, ""
 	case "repoAdd":
 		if req.RepositoryName == "" || req.RepositoryURL == "" {
 			return nil, "repository name and URL are required"
@@ -216,6 +282,7 @@ func execute(req request) (any, string) {
 		return views, ""
 	case "template", "install", "upgrade":
 		chartPathOptions := action.ChartPathOptions{}
+		chartPathOptions.Version = req.Version
 		chartPath, err := chartPathOptions.LocateChart(req.Chart, settings)
 		if err != nil {
 			return nil, err.Error()
@@ -364,14 +431,15 @@ func releaseView(value any) (map[string]any, error) {
 		updated = rel.Info.LastDeployed
 	}
 	return map[string]any{
-		"name":        rel.Name,
-		"namespace":   rel.Namespace,
-		"revision":    strconv.Itoa(rel.Version),
-		"updated":     updated,
-		"status":      status,
-		"chart":       chartName + "-" + chartVersion,
-		"app_version": appVersion,
-		"manifest":    rel.Manifest,
+		"name":         rel.Name,
+		"namespace":    rel.Namespace,
+		"revision":     strconv.Itoa(rel.Version),
+		"updated":      updated,
+		"status":       status,
+		"chart":        chartName + "-" + chartVersion,
+		"chartName":    chartName,
+		"chartVersion": chartVersion,
+		"app_version":  appVersion,
 	}, nil
 }
 

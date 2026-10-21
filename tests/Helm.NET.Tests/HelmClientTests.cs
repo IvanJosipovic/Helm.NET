@@ -58,6 +58,38 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void TemplateSerializesRequestedVersion()
+    {
+        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
+
+        client.Template("web", "stable/nginx", version: "1.2.3");
+
+        request().GetProperty("version").GetString().ShouldBe("1.2.3");
+    }
+
+    [Fact]
+    public void TemplateReleaseSerializesRevision()
+    {
+        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
+
+        client.TemplateRelease("web", revision: 2).ShouldBe("rendered yaml");
+
+        request().GetProperty("operation").GetString().ShouldBe("templateRelease");
+        request().GetProperty("revision").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void GetManifestSerializesRevision()
+    {
+        var client = CreateClient("{\"data\":\"stored yaml\"}", out var request);
+
+        client.GetManifest("web", revision: 4).ShouldBe("stored yaml");
+
+        request().GetProperty("operation").GetString().ShouldBe("getManifest");
+        request().GetProperty("revision").GetInt32().ShouldBe(4);
+    }
+
+    [Fact]
     public void InstallSerializesAllOptionsAndMapsRelease()
     {
         var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
@@ -149,6 +181,16 @@ public sealed class HelmClientTests
         client.ListRepositories().ShouldHaveSingleItem().ShouldBe(new HelmRepository("stable", "https://example.test"));
 
         request().GetProperty("operation").GetString().ShouldBe("repoList");
+    }
+
+    [Fact]
+    public void SearchChartsMapsQualifiedReferenceAndVersion()
+    {
+        var client = CreateClient("{\"data\":[{\"reference\":\"stable/nginx\",\"chartName\":\"nginx\",\"version\":\"1.2.3\"}]}", out var request);
+
+        client.SearchCharts("nginx").ShouldHaveSingleItem().ShouldBe(new HelmChartSearchResult("stable/nginx", "nginx", "1.2.3"));
+        request().GetProperty("operation").GetString().ShouldBe("chartSearch");
+        request().GetProperty("searchTerm").GetString().ShouldBe("nginx");
     }
 
     [Fact]

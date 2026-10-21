@@ -24,8 +24,9 @@ try
     }
     else
     {
-        var manifest = helm.Template("aot-smoke", chartDirectory);
+        var manifest = helm.Template("aot-smoke", chartDirectory, version: "1.0.0");
         Require(manifest.Contains("name: aot-smoke", StringComparison.Ordinal), $"Unexpected rendered manifest:\n{manifest}");
+        RunRepositoryOperations(chartDirectory);
     }
 
     Console.WriteLine(clusterLifecycle
@@ -56,6 +57,9 @@ static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
         wait: true,
         timeout: TimeSpan.FromMinutes(1));
     Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
+    Require(installed.ChartName == "aot-smoke" && installed.ChartVersion == "1.0.0", $"Unexpected chart metadata: {installed}");
+    Require(helm.GetManifest(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "GetManifest did not return the stored release manifest.");
+    Require(helm.TemplateRelease(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "TemplateRelease did not render the stored chart.");
     Require(helm.ListReleases().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
     Require(helm.ListReleases(allNamespaces: true, filter: "^aot-smoke$").Any(release => release.Name == releaseName), "The release is missing from the filtered all-namespaces list.");
     Require(helm.Status(releaseName).Status == "deployed", "Status did not report the installed release as deployed.");
@@ -91,7 +95,7 @@ static void RunRepositoryOperations(string chartDirectory)
 {
     var repositoryDirectory = Path.Combine(chartDirectory, "repository-config");
     Directory.CreateDirectory(repositoryDirectory);
-    using var repository = new LocalHelmRepository();
+    using var repository = new LocalHelmRepository("apiVersion: v1\nentries:\n  aot-smoke:\n  - apiVersion: v2\n    name: aot-smoke\n    version: 1.0.0\n    urls:\n    - aot-smoke-1.0.0.tgz\n");
     var helm = new HelmClient(new HelmClientOptions
     {
         RepositoryConfig = Path.Combine(repositoryDirectory, "repositories.yaml"),
@@ -101,6 +105,8 @@ static void RunRepositoryOperations(string chartDirectory)
     helm.AddRepository("aot-smoke", repository.Url);
     Require(helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The added chart repository is missing.");
     helm.UpdateRepositories();
+    var result = helm.SearchCharts("aot-smoke").Single();
+    Require(result.Reference == "aot-smoke/aot-smoke" && result.ChartName == "aot-smoke" && result.Version == "1.0.0", $"Unexpected chart search result: {result}");
     helm.RemoveRepository("aot-smoke");
     Require(!helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
 }
@@ -118,12 +124,13 @@ static void Require(bool condition, string message)
 
 sealed class LocalHelmRepository : IDisposable
 {
-    private const string Index = "apiVersion: v1\nentries: {}\n";
     private readonly HttpListener _listener = new();
     private readonly Task _server;
+    private readonly string _index;
 
-    public LocalHelmRepository()
+    public LocalHelmRepository(string index = "apiVersion: v1\nentries: {}\n")
     {
+        _index = index;
         int port;
         using (var portReservation = new TcpListener(IPAddress.Loopback, 0))
         {
@@ -161,7 +168,7 @@ sealed class LocalHelmRepository : IDisposable
                 return;
             }
 
-            var body = Encoding.UTF8.GetBytes(Index);
+            var body = Encoding.UTF8.GetBytes(_index);
             context.Response.ContentType = "application/yaml";
             context.Response.ContentLength64 = body.Length;
             context.Response.OutputStream.Write(body);

@@ -27,10 +27,18 @@ public sealed class HelmClient : IHelmClient
         Invoke(new NativeHelmRequest("list", AllNamespaces: allNamespaces, Filter: filter), NativeJsonContext.Default.HelmReleaseArray) ?? [];
 
     /// <summary>Renders a chart locally and returns the rendered manifest.</summary>
-    public string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null)
+    public string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, string? version = null)
     {
-        return Invoke(new NativeHelmRequest("template", releaseName, chart, valuesFiles?.ToArray(), values), NativeJsonContext.Default.String) ?? string.Empty;
+        return Invoke(new NativeHelmRequest("template", releaseName, chart, valuesFiles?.ToArray(), values, Version: version), NativeJsonContext.Default.String) ?? string.Empty;
     }
+
+    /// <summary>Renders the chart and values stored in an installed release revision.</summary>
+    public string TemplateRelease(string releaseName, int revision = 0) =>
+        Invoke(new NativeHelmRequest("templateRelease", releaseName, Revision: revision), NativeJsonContext.Default.String) ?? string.Empty;
+
+    /// <summary>Gets the manifest stored in an installed release revision.</summary>
+    public string GetManifest(string releaseName, int revision = 0) =>
+        Invoke(new NativeHelmRequest("getManifest", releaseName, Revision: revision), NativeJsonContext.Default.String) ?? string.Empty;
 
     /// <summary>Installs a chart and returns the created release.</summary>
     public HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null)
@@ -82,6 +90,10 @@ public sealed class HelmClient : IHelmClient
     /// <summary>Lists configured chart repositories.</summary>
     public IReadOnlyList<HelmRepository> ListRepositories() =>
         Invoke(new NativeHelmRequest("repoList"), NativeJsonContext.Default.HelmRepositoryArray) ?? [];
+
+    /// <summary>Searches configured repository indexes for charts and their available versions.</summary>
+    public IReadOnlyList<HelmChartSearchResult> SearchCharts(string searchTerm) =>
+        Invoke(new NativeHelmRequest("chartSearch", SearchTerm: searchTerm), NativeJsonContext.Default.HelmChartSearchResultArray) ?? [];
 
     /// <summary>Adds or updates a chart repository.</summary>
     public void AddRepository(string name, string url, string? username = null, string? password = null) =>

@@ -30,6 +30,16 @@ helm.AddRepository("bitnami", "https://charts.bitnami.com/bitnami");
 helm.UpdateRepositories();
 
 var release = helm.Install("my-release", "bitnami/nginx", createNamespace: true, wait: true);
+
+// Search indexes return resolvable references and one result per version.
+var charts = helm.SearchCharts("cilium");
+var rendered = helm.Template("preview", "cilium/cilium", version: "1.20.3");
+
+// Render the chart and values from a stored release revision without resolving a repository reference.
+var installedChart = helm.TemplateRelease("my-release");
+
+// Retrieve the manifest saved by Helm for the deployed revision.
+var deployedManifest = helm.GetManifest("my-release");
 ```
 
 ### List releases
@@ -40,6 +50,6 @@ foreach (var release in releases)
     Console.WriteLine($"{release.Name}: {release.Status} ({release.Chart})");
 ```
 
-The action API supports `ListReleases`, `Template`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
+The action API supports `ListReleases`, `SearchCharts`, `Template`, `TemplateRelease`, `GetManifest`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. `HelmRelease.ChartName` and `ChartVersion` expose the chart metadata separately from the display string in `Chart`. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
 
 The Go shim source and pinned Helm dependency are in `native/helm-shim`. Native libraries are packaged under `runtimes/<rid>/native`.

@@ -380,7 +380,7 @@ func TestReleaseViewMapsReleaseData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != "4" || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["app_version"] != "2.0" || view["manifest"] != "rendered" {
+	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != "4" || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["chartName"] != "nginx" || view["chartVersion"] != "1.2.3" || view["app_version"] != "2.0" {
 		t.Fatalf("unexpected release view: %#v", view)
 	}
 	if !view["updated"].(time.Time).Equal(deployed) {
