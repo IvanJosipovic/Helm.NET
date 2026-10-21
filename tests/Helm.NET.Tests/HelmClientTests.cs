@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
-using Helm.NET.Scenarios;
-
 namespace Helm.NET.Tests;
 
 public sealed class HelmClientTests
@@ -116,6 +114,85 @@ public sealed class HelmClientTests
         request().GetProperty("operation").GetString().ShouldBe("upgrade");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises the public interface overload.")]
+    public void InstallAndUpgradeSerializeVersionAndPreserveOptions(bool upgrade)
+    {
+        const string response = """
+            {"data":{"name":"web","namespace":"apps","revision":"4","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
+            """;
+        IHelmClient client = CreateClient(response, out var request);
+        var values = new Dictionary<string, object?> { ["key"] = "value" };
+        var timeout = TimeSpan.FromSeconds(12.5);
+
+        var release = upgrade
+            ? client.Upgrade("web", "stable/nginx", ["values.yaml"], values, installIfMissing: true, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3")
+            : client.Install("web", "stable/nginx", ["values.yaml"], values, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3");
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe(upgrade ? "upgrade" : "install");
+        json.GetProperty("chart").GetString().ShouldBe("stable/nginx");
+        json.GetProperty("version").GetString().ShouldBe("1.2.3");
+        json.GetProperty("valuesFiles")[0].GetString().ShouldBe("values.yaml");
+        json.GetProperty("values").GetProperty("key").GetString().ShouldBe("value");
+        json.GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
+        json.GetProperty("wait").GetBoolean().ShouldBeTrue();
+        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(12500);
+        json.GetProperty("installIfMissing").GetBoolean().ShouldBe(upgrade);
+        json.GetProperty("revision").GetInt32().ShouldBe(0);
+        release.ChartVersion.ShouldBe("1.2.3");
+        release.Revision.ShouldBe("4");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises both class and interface compatibility overloads.")]
+    public void InstallAndUpgradeDefaultAndLegacyOverloadsOmitVersion(bool upgrade)
+    {
+        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
+        IHelmClient contract = client;
+
+        if (upgrade)
+            contract.Upgrade("web", "chart");
+        else
+            contract.Install("web", "chart");
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        if (upgrade)
+            client.Upgrade("web", "chart", null, null, false, false, false, null);
+        else
+            client.Install("web", "chart", null, null, false, false, null);
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        if (upgrade)
+            contract.Upgrade("web", "chart", null, null, false, false, false, null);
+        else
+            contract.Install("web", "chart", null, null, false, false, null);
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InstallAndUpgradePropagateUnavailableVersionError(bool upgrade)
+    {
+        var client = CreateClient("{\"error\":\"chart version 99.0.0 not found\"}", out var request);
+
+        var exception = Should.Throw<HelmActionException>(() =>
+        {
+            if (upgrade)
+                client.Upgrade("web", "stable/nginx", installIfMissing: true, version: "99.0.0");
+            else
+                client.Install("web", "stable/nginx", version: "99.0.0");
+        });
+
+        exception.Message.ShouldBe("chart version 99.0.0 not found");
+        request().GetProperty("version").GetString().ShouldBe("99.0.0");
+    }
+
     [Fact]
     public void StatusMapsRelease()
     {
@@ -195,6 +272,39 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void ListChartsMapsResultsAndForwardsExactRepositoryName()
+    {
+        const string response = """
+            {"data":[
+                {"reference":"stable/nginx","chartName":"nginx","version":"1.2.3"},
+                {"reference":"stable/redis","chartName":"redis","version":"7.0.0"}
+            ]}
+            """;
+        var client = CreateClient(response, out var request);
+
+        client.ListCharts("stable").ShouldBe([
+            new HelmChartSearchResult("stable/nginx", "nginx", "1.2.3"),
+            new HelmChartSearchResult("stable/redis", "redis", "7.0.0")
+        ]);
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("chartList");
+        json.GetProperty("repositoryName").GetString().ShouldBe("stable");
+    }
+
+    [Fact]
+    public void ListChartsDefaultsToAllRepositories()
+    {
+        var client = CreateClient("{\"data\":[]}", out var request);
+
+        client.ListCharts().ShouldBeEmpty();
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("chartList");
+        json.GetProperty("repositoryName").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public void AddRepositorySendsCredentials()
     {
         var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
@@ -228,95 +338,6 @@ public sealed class HelmClientTests
         client.UpdateRepositories();
 
         request().GetProperty("operation").GetString().ShouldBe("repoUpdate");
-    }
-
-    [Fact]
-    public void SharedScenariosUseTheSameOperationsWithScriptedNativeResponses()
-    {
-        var requests = new List<JsonElement>();
-        var repositoryListCount = 0;
-        var releaseListCount = 0;
-        var valuesCount = 0;
-        var mainRelease = Release("aot-smoke", "1");
-        var upgradedRelease = Release("aot-smoke", "2");
-        var secondaryRelease = Release("aot-smoke-nowait", "1");
-        const string manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aot-smoke\ndata:\n  setting: \"rendered\"\n";
-
-        string NativeCall(byte[] payload)
-        {
-            using var document = JsonDocument.Parse(payload);
-            var request = document.RootElement.Clone();
-            requests.Add(request);
-            var operation = request.GetProperty("operation").GetString();
-            var data = operation switch
-            {
-                "template" => JsonSerializer.Serialize(manifest, NativeJsonContext.Default.String),
-                "repoAdd" or "repoUpdate" or "repoRemove" or "rollback" or "uninstall" => "{\"succeeded\":true}",
-                "repoList" => ++repositoryListCount == 1
-                    ? "[{\"name\":\"aot-smoke\",\"url\":\"http://127.0.0.1\"}]"
-                    : "[]",
-                "chartSearch" => "[{\"reference\":\"aot-smoke/aot-smoke\",\"chartName\":\"aot-smoke\",\"version\":\"1.0.0\"}]",
-                "install" => mainRelease,
-                "getManifest" or "templateRelease" => JsonSerializer.Serialize(manifest, NativeJsonContext.Default.String),
-                "list" => ++releaseListCount switch
-                {
-                    1 or 2 => "[" + mainRelease + "]",
-                    3 => "[" + mainRelease + "," + secondaryRelease + "]",
-                    _ => "[]"
-                },
-                "status" => mainRelease,
-                "values" => ++valuesCount switch
-                {
-                    1 or 3 => "{\"setting\":\"installed\"}",
-                    _ => "{\"setting\":\"upgraded\"}"
-                },
-                "upgrade" => request.GetProperty("releaseName").GetString() == "aot-smoke"
-                    ? upgradedRelease
-                    : secondaryRelease,
-                "history" => "[" + mainRelease + "," + upgradedRelease + "]",
-                _ => throw new InvalidOperationException($"Unexpected scenario operation: {operation}")
-            };
-            return "{\"data\":" + data + "}";
-        }
-
-        HelmClient CreateClient(HelmClientOptions options) => new(options, NativeCall);
-
-        var chartDirectory = Path.Combine(Path.GetTempPath(), $"helm-net-scenario-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(chartDirectory);
-        File.WriteAllText(Path.Combine(chartDirectory, "smoke-values.yaml"), "setting: from-file\n");
-        try
-        {
-            var helm = CreateClient(new HelmClientOptions { Namespace = "helm-net-aot" });
-            HelmClientScenarios.Run(helm, CreateClient, chartDirectory, "http://127.0.0.1", clusterLifecycle: true);
-        }
-        finally
-        {
-            Directory.Delete(chartDirectory, recursive: true);
-        }
-
-        requests.Select(item => item.GetProperty("operation").GetString()).ShouldBe(
-        [
-            "template", "repoAdd", "repoList", "repoUpdate", "chartSearch", "repoRemove", "repoList",
-            "install", "getManifest", "templateRelease", "list", "list", "status", "values", "upgrade",
-            "values", "history", "rollback", "values", "rollback", "values", "upgrade", "list", "uninstall",
-            "uninstall", "list"
-        ]);
-        requests[0].GetProperty("version").GetString().ShouldBe("1.0.0");
-        requests[0].GetProperty("values").GetProperty("setting").GetString().ShouldBe("rendered");
-        requests[0].GetProperty("valuesFiles")[0].GetString().ShouldBe(Path.Combine(chartDirectory, "smoke-values.yaml"));
-        requests[1].GetProperty("repositoryName").GetString().ShouldBe("aot-smoke");
-        requests[1].GetProperty("repositoryUrl").GetString().ShouldBe("http://127.0.0.1");
-        requests[2].GetProperty("repositoryConfig").GetString()!.ShouldContain("repositories.yaml");
-        requests[2].GetProperty("repositoryCache").GetString()!.ShouldContain("cache");
-        requests[7].GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
-        requests[14].GetProperty("installIfMissing").GetBoolean().ShouldBeTrue();
-        requests[17].GetProperty("revision").GetInt32().ShouldBe(1);
-        requests[10].GetProperty("namespace").GetString().ShouldBe("helm-net-aot");
-        requests[11].GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
-        requests[11].GetProperty("filter").GetString().ShouldBe("^aot-smoke$");
-
-        static string Release(string name, string revision) =>
-            $$"""{"name":"{{name}}","namespace":"helm-net-aot","revision":"{{revision}}","updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"aot-smoke-1.0.0","app_version":"1.0.0","chartName":"aot-smoke","chartVersion":"1.0.0"}""";
     }
 
     [Fact]
@@ -367,6 +388,7 @@ public sealed class HelmClientTests
         client.History("web").ShouldBeEmpty();
         client.ListRepositories().ShouldBeEmpty();
         client.SearchCharts("chart").ShouldBeEmpty();
+        client.ListCharts().ShouldBeEmpty();
         client.GetValues("web").ShouldBeEmpty();
         client.Template("web", "chart").ShouldBeEmpty();
         client.TemplateRelease("web").ShouldBeEmpty();
@@ -483,4 +505,3 @@ public sealed class HelmClientTests
         }
     }
 }
-

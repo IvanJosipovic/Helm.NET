@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/kube"
+	"helm.sh/helm/v4/pkg/registry"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
@@ -83,7 +85,7 @@ func handleJSON(input []byte) (encoded []byte) {
 
 func execute(req request) (any, string) {
 	switch req.Operation {
-	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
+	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "chartList", "repoAdd", "repoRemove", "repoUpdate":
 	default:
 		return nil, "unsupported operation: " + req.Operation
 	}
@@ -135,6 +137,10 @@ func execute(req request) (any, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	return executeAction(ctx, req, settings, cfg, timeout)
+}
+
+func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, cfg *action.Configuration, timeout time.Duration) (any, string) {
 	switch req.Operation {
 	case "repoList":
 		repositoryFileMu.Lock()
@@ -154,27 +160,33 @@ func execute(req request) (any, string) {
 		}
 		repositoryFileMu.Lock()
 		defer repositoryFileMu.Unlock()
-		file, err := loadRepositoryFile(settings.RepositoryConfig)
+		charts, err := loadChartCatalog(settings, "")
 		if err != nil {
 			return nil, err.Error()
 		}
 		term := strings.ToLower(req.SearchTerm)
 		results := make([]map[string]any, 0)
-		for _, entry := range file.Repositories {
-			indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
-			index, err := repo.LoadIndexFile(indexPath)
-			if err != nil {
-				return nil, fmt.Sprintf("failed to load index for repository %s: %v", entry.Name, err)
-			}
-			for chartName, versions := range index.Entries {
-				if !strings.Contains(strings.ToLower(chartName), term) {
-					continue
-				}
-				for _, version := range versions {
-					results = append(results, map[string]any{"reference": entry.Name + "/" + chartName, "chartName": chartName, "version": version.Version})
-				}
+		for _, chart := range charts {
+			if strings.Contains(strings.ToLower(chart["chartName"].(string)), term) {
+				results = append(results, chart)
 			}
 		}
+		return results, ""
+	case "chartList":
+		repositoryFileMu.Lock()
+		defer repositoryFileMu.Unlock()
+		results, err := loadChartCatalog(settings, req.RepositoryName)
+		if err != nil {
+			return nil, err.Error()
+		}
+		sort.Slice(results, func(i, j int) bool {
+			leftReference := results[i]["reference"].(string)
+			rightReference := results[j]["reference"].(string)
+			if leftReference != rightReference {
+				return leftReference < rightReference
+			}
+			return results[i]["version"].(string) < results[j]["version"].(string)
+		})
 		return results, ""
 	case "templateRelease":
 		get := action.NewGet(cfg)
@@ -285,8 +297,21 @@ func execute(req request) (any, string) {
 		}
 		return views, ""
 	case "template", "install", "upgrade":
-		chartPathOptions := action.ChartPathOptions{}
-		chartPathOptions.Version = req.Version
+		if registry.IsOCI(req.Chart) && cfg.RegistryClient == nil {
+			client, err := registry.NewClient(registry.ClientOptCredentialsFile(settings.RegistryConfig))
+			if err != nil {
+				return nil, err.Error()
+			}
+			cfg.RegistryClient = client
+		}
+		install := action.NewInstall(cfg)
+		install.ChartPathOptions.Version = req.Version
+		upgrade := action.NewUpgrade(cfg)
+		upgrade.ChartPathOptions.Version = req.Version
+		chartPathOptions := &install.ChartPathOptions
+		if req.Operation == "upgrade" {
+			chartPathOptions = &upgrade.ChartPathOptions
+		}
 		chartPath, err := chartPathOptions.LocateChart(req.Chart, settings)
 		if err != nil {
 			return nil, err.Error()
@@ -316,7 +341,6 @@ func execute(req request) (any, string) {
 			}
 		}
 		if req.Operation == "upgrade" && !installMode {
-			upgrade := action.NewUpgrade(cfg)
 			upgrade.Namespace = req.Namespace
 			upgrade.Timeout = timeout
 			upgrade.WaitStrategy = kube.HookOnlyStrategy
@@ -325,7 +349,6 @@ func execute(req request) (any, string) {
 			}
 			releaseResult, err = upgrade.RunWithContext(ctx, req.ReleaseName, ch, values)
 		} else {
-			install := action.NewInstall(cfg)
 			install.ReleaseName = req.ReleaseName
 			install.Namespace = req.Namespace
 			install.CreateNamespace = req.CreateNamespace
@@ -404,6 +427,52 @@ func execute(req request) (any, string) {
 		return values, ""
 	}
 	return nil, errors.New("unreachable operation").Error()
+}
+
+func loadChartCatalog(settings *cli.EnvSettings, repositoryName string) ([]map[string]any, error) {
+	file, err := loadRepositoryFile(settings.RepositoryConfig)
+	if err != nil {
+		return nil, err
+	}
+	entries := file.Repositories
+	if repositoryName != "" {
+		var selected *repo.Entry
+		for _, entry := range entries {
+			if entry != nil && entry.Name == repositoryName {
+				selected = entry
+				break
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("configured repository %q was not found; check ListRepositories() for exact repository names", repositoryName)
+		}
+		entries = []*repo.Entry{selected}
+	}
+
+	results := make([]map[string]any, 0)
+	for _, entry := range entries {
+		if entry == nil {
+			return nil, errors.New("repository configuration contains an empty repository entry")
+		}
+		indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
+		index, err := repo.LoadIndexFile(indexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load chart index for repository %q at %q: %w", entry.Name, indexPath, err)
+		}
+		for chartName, versions := range index.Entries {
+			for _, version := range versions {
+				if version == nil {
+					return nil, fmt.Errorf("chart index for repository %q contains an empty version entry for chart %q", entry.Name, chartName)
+				}
+				results = append(results, map[string]any{
+					"reference": entry.Name + "/" + chartName,
+					"chartName": chartName,
+					"version":   version.Version,
+				})
+			}
+		}
+	}
+	return results, nil
 }
 
 func loadRepositoryFile(path string) (*repo.File, error) {

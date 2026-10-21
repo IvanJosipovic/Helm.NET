@@ -60,7 +60,7 @@ BenchmarkDotNet.Artifacts/
 project.lock.json
 project.fragment.lock.json
 artifacts/
-/tests/Helm.NET.AotSmoke/aot-publish-*/
+/tests/Helm.NET.Tests.E2E.AOT/aot-publish-*/
 
 # StyleCop
 StyleCopReport.xml
@@ -116,6 +116,10 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+!tests/Helm.NET.Tests.E2E/
+!tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj
+!tests/Helm.NET.Tests.E2E/HelmClientE2ETests.cs
+!tests/Helm.NET.Tests.E2E/Usings.cs
 
 # TFS 2012 Local Workspace
 $tf/

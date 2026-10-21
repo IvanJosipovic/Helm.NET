@@ -1,16 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Helm.NET\Helm.NET.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\Helm.NET.Shared\HelmClientScenarios.cs" Link="Shared\HelmClientScenarios.cs" />
   </ItemGroup>
 
 </Project>
