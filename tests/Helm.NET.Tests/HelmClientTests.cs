@@ -276,8 +276,11 @@ public sealed class HelmClientTests
         client.ListReleases().ShouldBeEmpty();
         client.History("web").ShouldBeEmpty();
         client.ListRepositories().ShouldBeEmpty();
+        client.SearchCharts("chart").ShouldBeEmpty();
         client.GetValues("web").ShouldBeEmpty();
         client.Template("web", "chart").ShouldBeEmpty();
+        client.TemplateRelease("web").ShouldBeEmpty();
+        client.GetManifest("web").ShouldBeEmpty();
     }
 
     [Fact]
