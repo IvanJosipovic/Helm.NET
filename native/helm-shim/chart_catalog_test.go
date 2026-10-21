@@ -41,7 +41,7 @@ func writeChartCatalogIndex(t *testing.T, settings *cli.EnvSettings, repositoryN
 	for chartName, versions := range chartVersions {
 		for _, version := range versions {
 			index.Entries[chartName] = append(index.Entries[chartName], &repo.ChartVersion{
-				Metadata: &chart.Metadata{APIVersion: "v2", Name: chartName, Version: version},
+				Metadata: &chart.Metadata{APIVersion: "v2", Name: chartName, Version: version, Description: chartName + " description"},
 				URLs:     []string{"https://example.invalid/" + chartName + "-" + version + ".tgz"},
 			})
 		}
@@ -74,6 +74,11 @@ func TestChartListUsesCachedIndexesAndExactRepositoryNames(t *testing.T) {
 		"stable-extra/nginx@3.0.0", "stable/nginx@1.0.0", "stable/nginx@2.0.0", "stable/redis@7.0.0",
 	}) {
 		t.Fatalf("unexpected deterministic catalog order: %#v", got)
+	}
+	for _, item := range all {
+		if item["description"] != item["chartName"].(string)+" description" {
+			t.Fatalf("chart description missing from catalog entry: %#v", item)
+		}
 	}
 
 	filtered, message := executeAction(context.Background(), request{Operation: "chartList", RepositoryName: "stable"}, settings, nil, time.Second)
