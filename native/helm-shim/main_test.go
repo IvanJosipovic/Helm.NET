@@ -39,6 +39,18 @@ func TestHandleJSONReturnsUnsupportedOperation(t *testing.T) {
 	}
 }
 
+func TestNewRegistryClientRejectsInvalidCABundle(t *testing.T) {
+	caFile := filepath.Join(t.TempDir(), "invalid-ca.pem")
+	if err := os.WriteFile(caFile, []byte("not a PEM certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newRegistryClient(request{CaFile: caFile}, filepath.Join(t.TempDir(), "registry.json"))
+	if err == nil || !strings.Contains(err.Error(), "can't parse registry CA file") {
+		t.Fatalf("expected an invalid CA bundle error, got %v", err)
+	}
+}
+
 func TestExecuteRequiresChartAndReleaseName(t *testing.T) {
 	for _, operation := range []string{"template", "install", "upgrade"} {
 		t.Run(operation+" requires chart", func(t *testing.T) {

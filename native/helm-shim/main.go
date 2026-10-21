@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,7 +34,6 @@ import (
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
-	"helm.sh/helm/v4/pkg/tlsutil"
 )
 
 type request struct {
@@ -676,18 +677,30 @@ func newRegistryClient(req request, registryConfig string) (*registry.Client, er
 		registry.ClientOptBasicAuth(req.RepositoryUsername, req.RepositoryPassword),
 	}
 	if req.CertFile != "" && req.KeyFile != "" || req.CaFile != "" || req.InsecureSkipTlsVerify {
-		tlsConfig, err := tlsutil.NewTLSConfig(
-			tlsutil.WithInsecureSkipVerify(req.InsecureSkipTlsVerify),
-			tlsutil.WithCertKeyPairFiles(req.CertFile, req.KeyFile),
-			tlsutil.WithCAFile(req.CaFile),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("can't create registry TLS config: %w", err)
+		tlsConfig := &tls.Config{InsecureSkipVerify: req.InsecureSkipTlsVerify}
+		if req.CertFile != "" || req.KeyFile != "" {
+			certificate, err := tls.LoadX509KeyPair(req.CertFile, req.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("can't load registry client certificate: %w", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{certificate}
+		}
+		if req.CaFile != "" {
+			caPEM, err := os.ReadFile(req.CaFile)
+			if err != nil {
+				return nil, fmt.Errorf("can't read registry CA file: %w", err)
+			}
+			caCertificates := x509.NewCertPool()
+			if !caCertificates.AppendCertsFromPEM(caPEM) {
+				return nil, fmt.Errorf("can't parse registry CA file %q", req.CaFile)
+			}
+			tlsConfig.RootCAs = caCertificates
 		}
 		options = append(options, registry.ClientOptHTTPClient(&http.Client{
 			Transport: &http.Transport{TLSClientConfig: tlsConfig, Proxy: http.ProxyFromEnvironment},
 		}))
-	} else if req.PlainHttp {
+	}
+	if req.PlainHttp {
 		options = append(options, registry.ClientOptPlainHTTP())
 	}
 	return registry.NewClient(options...)
