@@ -15,6 +15,7 @@ on:
       - main
       - alpha
       - beta
+      - dev5
     paths:
       - native/helm-shim/**
       - .github/workflows/update-helm-native.yaml
