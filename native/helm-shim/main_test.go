@@ -10,9 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"helm.sh/helm/v4/pkg/action"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/kube"
 	"helm.sh/helm/v4/pkg/release/common"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestHandleJSONRejectsMalformedInput(t *testing.T) {
@@ -32,6 +36,18 @@ func TestHandleJSONReturnsUnsupportedOperation(t *testing.T) {
 	}
 	if got.Error != "unsupported operation: not-an-operation" {
 		t.Fatalf("unexpected error: %q", got.Error)
+	}
+}
+
+func TestNewRegistryClientRejectsInvalidCABundle(t *testing.T) {
+	caFile := filepath.Join(t.TempDir(), "invalid-ca.pem")
+	if err := os.WriteFile(caFile, []byte("not a PEM certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newRegistryClient(request{CaFile: caFile}, filepath.Join(t.TempDir(), "registry.json"))
+	if err == nil || !strings.Contains(err.Error(), "can't parse registry CA file") {
+		t.Fatalf("expected an invalid CA bundle error, got %v", err)
 	}
 }
 
@@ -75,6 +91,95 @@ func TestExecuteRendersLocalChartWithoutKubernetes(t *testing.T) {
 	manifest, ok := data.(string)
 	if !ok || !strings.Contains(manifest, "name: web") || !strings.Contains(manifest, `setting: "from-test"`) {
 		t.Fatalf("unexpected rendered manifest: %#v", data)
+	}
+}
+
+func TestExecuteTemplateSupportsCliRenderingOptions(t *testing.T) {
+	chartDir := filepath.Join(t.TempDir(), "chart")
+	for _, directory := range []string{filepath.Join(chartDir, "templates"), filepath.Join(chartDir, "crds")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte("apiVersion: v2\nname: example\nversion: 1.0.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	template := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\n  namespace: {{ .Release.Namespace }}\ndata:\n  customApi: {{ .Capabilities.APIVersions.Has \"example.io/v1\" | quote }}\n  kubeVersion: {{ .Capabilities.KubeVersion.Version | quote }}\n  upgrade: {{ .Release.IsUpgrade | quote }}\n"
+	if err := os.WriteFile(filepath.Join(chartDir, "templates", "configmap.yaml"), []byte(template), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hook := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}-test\n  annotations:\n    helm.sh/hook: test\n"
+	if err := os.WriteFile(filepath.Join(chartDir, "templates", "test-hook.yaml"), []byte(hook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	crd := "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: widgets.example.io\nspec:\n  group: example.io\n  scope: Namespaced\n  names:\n    plural: widgets\n    singular: widget\n    kind: Widget\n  versions:\n  - name: v1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n"
+	if err := os.WriteFile(filepath.Join(chartDir, "crds", "widgets.yaml"), []byte(crd), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base := request{Operation: "template", ReleaseName: "web", Chart: chartDir, Namespace: "apps", ApiVersions: []string{"example.io/v1"}, KubeVersion: "1.30.0", IncludeCrds: true, IsUpgrade: true}
+	data, message := execute(base)
+	if message != "" {
+		t.Fatalf("template failed: %s", message)
+	}
+	manifest := data.(string)
+	for _, expected := range []string{"namespace: apps", `customApi: "true"`, `kubeVersion: "v1.30.0"`, `upgrade: "true"`, "kind: CustomResourceDefinition", "name: web-test"} {
+		if !strings.Contains(manifest, expected) {
+			t.Errorf("template output missing %q:\n%s", expected, manifest)
+		}
+	}
+
+	base.SkipTests = true
+	data, message = execute(base)
+	if message != "" {
+		t.Fatalf("template with skipTests failed: %s", message)
+	}
+	manifest = data.(string)
+	if strings.Contains(manifest, "name: web-test") {
+		t.Fatalf("test hook was rendered despite skipTests:\n%s", manifest)
+	}
+	if !strings.Contains(manifest, "kind: CustomResourceDefinition") {
+		t.Fatalf("CRD was omitted despite includeCrds:\n%s", manifest)
+	}
+}
+
+func TestExecuteValidatesWaitAndCascadeOptions(t *testing.T) {
+	if _, message := execute(request{Operation: "rollback", WaitStrategy: "not-a-strategy"}); message != "waitStrategy must be one of watcher, hookOnly, or legacy" {
+		t.Fatalf("unexpected wait strategy error: %q", message)
+	}
+	if _, message := execute(request{Operation: "uninstall", Cascade: "invalid"}); message != "cascade must be one of background, foreground, or orphan" {
+		t.Fatalf("unexpected cascade error: %q", message)
+	}
+}
+
+func TestRequestedWaitStrategyMatchesHelmCliValues(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		request  request
+		expected kube.WaitStrategy
+	}{
+		{name: "omitted wait defaults hook-only", request: request{}, expected: kube.HookOnlyStrategy},
+		{name: "boolean wait defaults watcher", request: request{Wait: true}, expected: kube.StatusWatcherStrategy},
+		{name: "explicit legacy strategy", request: request{WaitStrategy: "legacy"}, expected: kube.LegacyStrategy},
+		{name: "explicit hook-only strategy", request: request{WaitStrategy: "hookOnly"}, expected: kube.HookOnlyStrategy},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := requestedWaitStrategy(test.request); actual != test.expected {
+				t.Fatalf("got %q, want %q", actual, test.expected)
+			}
+		})
+	}
+}
+
+func TestApplyChartPathOptions(t *testing.T) {
+	options := &action.ChartPathOptions{}
+	applyChartPathOptions(options, request{
+		Repo: "https://charts.example", RepositoryUsername: "user", RepositoryPassword: "password",
+		CaFile: "ca.pem", CertFile: "client.pem", KeyFile: "client.key",
+		InsecureSkipTlsVerify: true, PassCredentials: true, PlainHttp: true,
+	})
+	if options.RepoURL != "https://charts.example" || options.Username != "user" || options.Password != "password" || options.CaFile != "ca.pem" || options.CertFile != "client.pem" || options.KeyFile != "client.key" || !options.InsecureSkipTLSVerify || !options.PassCredentialsAll || !options.PlainHTTP {
+		t.Fatalf("chart path options were not mapped from the request: %+v", options)
 	}
 }
 
@@ -438,8 +543,12 @@ func TestReleaseViewMapsReleaseData(t *testing.T) {
 	deployed := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	rel := &releasev1.Release{
 		Name: "web", Namespace: "apps", Version: 4, Manifest: "rendered",
-		Info:  &releasev1.Info{Status: common.StatusDeployed, LastDeployed: deployed},
+		Info: &releasev1.Info{
+			Status: common.StatusDeployed, LastDeployed: deployed, Description: "release description", Notes: "release notes",
+			Resources: map[string][]runtime.Object{"v1/Pod": {&unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": "web"}}}}},
+		},
 		Chart: &chart.Chart{Metadata: &chart.Metadata{Name: "nginx", Version: "1.2.3", AppVersion: "2.0"}},
+		Hooks: []*releasev1.Hook{{Name: "test-hook", Kind: "Pod", Events: []releasev1.HookEvent{releasev1.HookTest}}},
 	}
 
 	view, err := releaseView(rel)
@@ -452,6 +561,26 @@ func TestReleaseViewMapsReleaseData(t *testing.T) {
 	if !view["updated"].(time.Time).Equal(deployed) {
 		t.Fatalf("unexpected updated time: %#v", view["updated"])
 	}
+	if view["description"] != "release description" || view["notes"] != "release notes" || len(view["hooks"].([]*releasev1.Hook)) != 1 {
+		t.Fatalf("release detail fields missing: %#v", view)
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("failed to encode projected release: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("failed to decode projected release: %v", err)
+	}
+	resources := payload["resources"].(map[string]any)
+	pods := resources["v1/Pod"].([]any)
+	if pods[0].(map[string]any)["metadata"].(map[string]any)["name"] != "web" {
+		t.Fatalf("resource objects did not survive JSON projection: %s", encoded)
+	}
+	hooks := payload["hooks"].([]any)
+	if hooks[0].(map[string]any)["events"].([]any)[0] != "test" {
+		t.Fatalf("hook details did not survive JSON projection: %s", encoded)
+	}
 }
 
 func TestReleaseViewHandlesMissingOptionalData(t *testing.T) {
@@ -459,7 +588,7 @@ func TestReleaseViewHandlesMissingOptionalData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view["chart"] != "-" || view["app_version"] != "" || view["status"] != "" || !view["updated"].(time.Time).IsZero() {
+	if view["chart"] != "-" || view["app_version"] != "" || view["status"] != "" || view["description"] != "" || view["notes"] != "" || !view["updated"].(time.Time).IsZero() {
 		t.Fatalf("unexpected view for release with no optional data: %#v", view)
 	}
 }

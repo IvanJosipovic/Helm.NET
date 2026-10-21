@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Helm.NET;
 
 /// <summary>A chart found in a configured repository index.</summary>
@@ -5,4 +7,5 @@ namespace Helm.NET;
 /// <param name="ChartName">The chart name.</param>
 /// <param name="Version">An available chart version.</param>
 /// <param name="Description">The chart description from the repository index, when available.</param>
-public sealed record HelmChartSearchResult(string Reference, string ChartName, string Version, string? Description = null);
+/// <param name="AppVersion">The application version from the repository index, when available.</param>
+public sealed record HelmChartSearchResult(string Reference, string ChartName, string Version, string? Description = null, [property: JsonPropertyName("app_version")] string? AppVersion = null);

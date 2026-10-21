@@ -2,25 +2,34 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"helm.sh/helm/v4/pkg/action"
+	chartci "helm.sh/helm/v4/pkg/chart"
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/chart/loader"
 	chartloader "helm.sh/helm/v4/pkg/chart/v2/loader"
 	"helm.sh/helm/v4/pkg/cli"
+	helmsearch "helm.sh/helm/v4/pkg/cmd/search"
+	"helm.sh/helm/v4/pkg/downloader"
 	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/kube"
+	"helm.sh/helm/v4/pkg/postrenderer"
 	"helm.sh/helm/v4/pkg/registry"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
@@ -28,31 +37,87 @@ import (
 )
 
 type request struct {
-	Operation           string         `json:"operation"`
-	Kubeconfig          string         `json:"kubeconfig,omitempty"`
-	KubeContext         string         `json:"kubeContext,omitempty"`
-	Namespace           string         `json:"namespace,omitempty"`
-	Chart               string         `json:"chart,omitempty"`
-	ReleaseName         string         `json:"releaseName,omitempty"`
-	ValuesFiles         []string       `json:"valuesFiles,omitempty"`
-	Values              map[string]any `json:"values,omitempty"`
-	Wait                bool           `json:"wait,omitempty"`
-	CreateNamespace     bool           `json:"createNamespace,omitempty"`
-	TimeoutMilliseconds int64          `json:"timeoutMilliseconds,omitempty"`
-	AllNamespaces       bool           `json:"allNamespaces,omitempty"`
-	Filter              string         `json:"filter,omitempty"`
-	Revision            int            `json:"revision,omitempty"`
-	InstallIfMissing    bool           `json:"installIfMissing,omitempty"`
-	RepositoryConfig    string         `json:"repositoryConfig,omitempty"`
-	RepositoryCache     string         `json:"repositoryCache,omitempty"`
-	RegistryConfig      string         `json:"registryConfig,omitempty"`
-	HelmDriver          string         `json:"helmDriver,omitempty"`
-	RepositoryName      string         `json:"repositoryName,omitempty"`
-	RepositoryURL       string         `json:"repositoryUrl,omitempty"`
-	RepositoryUsername  string         `json:"repositoryUsername,omitempty"`
-	RepositoryPassword  string         `json:"repositoryPassword,omitempty"`
-	Version             string         `json:"version,omitempty"`
-	SearchTerm          string         `json:"searchTerm,omitempty"`
+	Operation                string         `json:"operation"`
+	Kubeconfig               string         `json:"kubeconfig,omitempty"`
+	KubeContext              string         `json:"kubeContext,omitempty"`
+	Namespace                string         `json:"namespace,omitempty"`
+	Chart                    string         `json:"chart,omitempty"`
+	ReleaseName              string         `json:"releaseName,omitempty"`
+	ValuesFiles              []string       `json:"valuesFiles,omitempty"`
+	Values                   map[string]any `json:"values,omitempty"`
+	Wait                     bool           `json:"wait,omitempty"`
+	CreateNamespace          bool           `json:"createNamespace,omitempty"`
+	TimeoutMilliseconds      int64          `json:"timeoutMilliseconds,omitempty"`
+	AllNamespaces            bool           `json:"allNamespaces,omitempty"`
+	Filter                   string         `json:"filter,omitempty"`
+	Revision                 int            `json:"revision,omitempty"`
+	InstallIfMissing         bool           `json:"installIfMissing,omitempty"`
+	RepositoryConfig         string         `json:"repositoryConfig,omitempty"`
+	RepositoryCache          string         `json:"repositoryCache,omitempty"`
+	RegistryConfig           string         `json:"registryConfig,omitempty"`
+	HelmDriver               string         `json:"helmDriver,omitempty"`
+	RepositoryName           string         `json:"repositoryName,omitempty"`
+	RepositoryURL            string         `json:"repositoryUrl,omitempty"`
+	RepositoryUsername       string         `json:"repositoryUsername,omitempty"`
+	RepositoryPassword       string         `json:"repositoryPassword,omitempty"`
+	ForceUpdate              bool           `json:"forceUpdate,omitempty"`
+	Version                  string         `json:"version,omitempty"`
+	SearchTerm               string         `json:"searchTerm,omitempty"`
+	AllValues                bool           `json:"allValues,omitempty"`
+	Versions                 bool           `json:"versions,omitempty"`
+	Devel                    bool           `json:"devel,omitempty"`
+	Regexp                   bool           `json:"regexp,omitempty"`
+	VersionConstraint        string         `json:"versionConstraint,omitempty"`
+	FailOnNoResult           bool           `json:"failOnNoResult,omitempty"`
+	Max                      int            `json:"max,omitempty"`
+	Offset                   int            `json:"offset,omitempty"`
+	Selector                 string         `json:"selector,omitempty"`
+	Deployed                 bool           `json:"deployed,omitempty"`
+	Failed                   bool           `json:"failed,omitempty"`
+	Pending                  bool           `json:"pending,omitempty"`
+	Superseded               bool           `json:"superseded,omitempty"`
+	Uninstalled              bool           `json:"uninstalled,omitempty"`
+	Uninstalling             bool           `json:"uninstalling,omitempty"`
+	Date                     bool           `json:"date,omitempty"`
+	ResetValues              bool           `json:"resetValues,omitempty"`
+	ReuseValues              bool           `json:"reuseValues,omitempty"`
+	ResetThenReuseValues     bool           `json:"resetThenReuseValues,omitempty"`
+	DryRun                   string         `json:"dryRun,omitempty"`
+	HideSecret               bool           `json:"hideSecret,omitempty"`
+	DisableHooks             bool           `json:"disableHooks,omitempty"`
+	PostRenderer             string         `json:"postRenderer,omitempty"`
+	PostRendererArgs         []string       `json:"postRendererArgs,omitempty"`
+	WaitForJobs              bool           `json:"waitForJobs,omitempty"`
+	RollbackOnFailure        bool           `json:"rollbackOnFailure,omitempty"`
+	Reverse                  bool           `json:"reverse,omitempty"`
+	DependencyUpdate         bool           `json:"dependencyUpdate,omitempty"`
+	SkipCrds                 bool           `json:"skipCrds,omitempty"`
+	SkipSchemaValidation     bool           `json:"skipSchemaValidation,omitempty"`
+	DisableOpenApiValidation bool           `json:"disableOpenApiValidation,omitempty"`
+	Description              string         `json:"description,omitempty"`
+	WaitStrategy             string         `json:"waitStrategy,omitempty"`
+	Replace                  bool           `json:"replace,omitempty"`
+	ForceReplace             bool           `json:"forceReplace,omitempty"`
+	ForceConflicts           bool           `json:"forceConflicts,omitempty"`
+	TakeOwnership            bool           `json:"takeOwnership,omitempty"`
+	CleanupOnFail            bool           `json:"cleanupOnFail,omitempty"`
+	HistoryMax               int            `json:"historyMax,omitempty"`
+	DryRunUninstall          bool           `json:"dryRunUninstall,omitempty"`
+	IgnoreNotFound           bool           `json:"ignoreNotFound,omitempty"`
+	KeepHistory              bool           `json:"keepHistory,omitempty"`
+	Cascade                  string         `json:"cascade,omitempty"`
+	Repo                     string         `json:"repo,omitempty"`
+	CaFile                   string         `json:"caFile,omitempty"`
+	CertFile                 string         `json:"certFile,omitempty"`
+	KeyFile                  string         `json:"keyFile,omitempty"`
+	InsecureSkipTlsVerify    bool           `json:"insecureSkipTlsVerify,omitempty"`
+	PassCredentials          bool           `json:"passCredentials,omitempty"`
+	PlainHttp                bool           `json:"plainHttp,omitempty"`
+	ApiVersions              []string       `json:"apiVersions,omitempty"`
+	KubeVersion              string         `json:"kubeVersion,omitempty"`
+	IncludeCrds              bool           `json:"includeCrds,omitempty"`
+	SkipTests                bool           `json:"skipTests,omitempty"`
+	IsUpgrade                bool           `json:"isUpgrade,omitempty"`
 }
 
 type result struct {
@@ -85,7 +150,7 @@ func handleJSON(input []byte) (encoded []byte) {
 
 func execute(req request) (any, string) {
 	switch req.Operation {
-	case "list", "template", "templateRelease", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "chartList", "repoAdd", "repoRemove", "repoUpdate":
+	case "list", "template", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
 	default:
 		return nil, "unsupported operation: " + req.Operation
 	}
@@ -96,6 +161,24 @@ func execute(req request) (any, string) {
 		if req.ReleaseName == "" {
 			return nil, "releaseName is required"
 		}
+		if req.DryRun != "" && req.DryRun != "none" && req.DryRun != "client" && req.DryRun != "server" {
+			return nil, "dryRun must be one of none, client, or server"
+		}
+	}
+	if req.WaitStrategy != "" && req.WaitStrategy != "watcher" && req.WaitStrategy != "hookOnly" && req.WaitStrategy != "legacy" {
+		return nil, "waitStrategy must be one of watcher, hookOnly, or legacy"
+	}
+	if req.ForceReplace && req.ForceConflicts && (req.Operation == "install" || req.Operation == "upgrade" || req.Operation == "rollback") {
+		return nil, "forceReplace and forceConflicts cannot be used together"
+	}
+	if req.Operation == "rollback" && req.DryRun != "" && req.DryRun != "none" && req.DryRun != "client" && req.DryRun != "server" {
+		return nil, "dryRun must be one of none, client, or server"
+	}
+	if req.Operation == "uninstall" && req.Cascade != "" && req.Cascade != "background" && req.Cascade != "foreground" && req.Cascade != "orphan" {
+		return nil, "cascade must be one of background, foreground, or orphan"
+	}
+	if req.Operation == "uninstall" && req.Cascade == "" {
+		req.Cascade = "background"
 	}
 	if req.Namespace == "" {
 		req.Namespace = "default"
@@ -155,61 +238,68 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		}
 		return entries, ""
 	case "chartSearch":
+		repositoryFileMu.Lock()
+		defer repositoryFileMu.Unlock()
+		file, err := repo.LoadFile(settings.RepositoryConfig)
+		if errors.Is(err, os.ErrNotExist) || (err == nil && len(file.Repositories) == 0) {
+			return nil, "no repositories configured"
+		}
+		if err != nil {
+			return nil, err.Error()
+		}
+		index := helmsearch.NewIndex()
+		for _, entry := range file.Repositories {
+			if entry == nil {
+				continue
+			}
+			indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
+			chartIndex, loadErr := repo.LoadIndexFile(indexPath)
+			if loadErr != nil {
+				slog.Warn("repo is corrupt or missing", "repo", entry.Name, "error", loadErr)
+				continue
+			}
+			index.AddRepo(entry.Name, chartIndex, true)
+		}
+		var matches []*helmsearch.Result
 		if req.SearchTerm == "" {
-			return nil, "searchTerm is required"
-		}
-		repositoryFileMu.Lock()
-		defer repositoryFileMu.Unlock()
-		charts, err := loadChartCatalog(settings, "")
-		if err != nil {
-			return nil, err.Error()
-		}
-		term := strings.ToLower(req.SearchTerm)
-		results := make([]map[string]any, 0)
-		for _, chart := range charts {
-			if strings.Contains(strings.ToLower(chart["chartName"].(string)), term) {
-				results = append(results, chart)
+			matches = index.All()
+		} else {
+			matches, err = index.Search(req.SearchTerm, 25, req.Regexp)
+			if err != nil {
+				return nil, err.Error()
 			}
 		}
-		return results, ""
-	case "chartList":
-		repositoryFileMu.Lock()
-		defer repositoryFileMu.Unlock()
-		results, err := loadChartCatalog(settings, req.RepositoryName)
-		if err != nil {
-			return nil, err.Error()
-		}
-		sort.Slice(results, func(i, j int) bool {
-			leftReference := results[i]["reference"].(string)
-			rightReference := results[j]["reference"].(string)
-			if leftReference != rightReference {
-				return leftReference < rightReference
+		helmsearch.SortScore(matches)
+		var constraint *semver.Constraints
+		versionConstraint := req.VersionConstraint
+		if versionConstraint == "" {
+			versionConstraint = ">0.0.0"
+			if req.Devel {
+				versionConstraint = ">0.0.0-0"
 			}
-			return results[i]["version"].(string) < results[j]["version"].(string)
-		})
+		}
+		constraint, err = semver.NewConstraint(versionConstraint)
+		if err != nil {
+			return nil, fmt.Sprintf("an invalid version/constraint format: %v", err)
+		}
+		results := make([]map[string]any, 0, len(matches))
+		seen := make(map[string]bool)
+		for _, match := range matches {
+			version, parseErr := semver.NewVersion(match.Chart.Version)
+			if parseErr != nil || !constraint.Check(version) || (!req.Versions && seen[match.Name]) {
+				continue
+			}
+			seen[match.Name] = true
+			results = append(results, map[string]any{
+				"reference": match.Name, "chartName": match.Chart.Name,
+				"version": match.Chart.Version, "app_version": match.Chart.AppVersion,
+				"description": match.Chart.Description,
+			})
+		}
+		if req.FailOnNoResult && len(results) == 0 {
+			return nil, "no results found"
+		}
 		return results, ""
-	case "templateRelease":
-		get := action.NewGet(cfg)
-		get.Version = req.Revision
-		stored, err := get.Run(req.ReleaseName)
-		if err != nil {
-			return nil, err.Error()
-		}
-		rel, ok := stored.(*releasev1.Release)
-		if !ok || rel == nil || rel.Chart == nil {
-			return nil, fmt.Sprintf("unexpected Helm release type %T", stored)
-		}
-		install := action.NewInstall(cfg)
-		install.ReleaseName = rel.Name
-		install.Namespace = rel.Namespace
-		install.DryRunStrategy = action.DryRunClient
-		install.DisableHooks = true
-		install.WaitStrategy = kube.HookOnlyStrategy
-		rendered, err := install.RunWithContext(ctx, rel.Chart, rel.Config)
-		if err != nil {
-			return nil, err.Error()
-		}
-		return rendered.(*releasev1.Release).Manifest, ""
 	case "getManifest":
 		get := action.NewGet(cfg)
 		get.Version = req.Revision
@@ -233,6 +323,12 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 			return nil, err.Error()
 		}
 		entry := &repo.Entry{Name: req.RepositoryName, URL: req.RepositoryURL, Username: req.RepositoryUsername, Password: req.RepositoryPassword}
+		if existing := file.Get(req.RepositoryName); existing != nil && !req.ForceUpdate {
+			if existing.URL == entry.URL && existing.Username == entry.Username && existing.Password == entry.Password {
+				return map[string]bool{"succeeded": true}, ""
+			}
+			return nil, fmt.Sprintf("repository name (%s) already exists, please specify a different name", req.RepositoryName)
+		}
 		chartRepo, err := repo.NewChartRepository(entry, getter.All(settings))
 		if err != nil {
 			return nil, err.Error()
@@ -280,9 +376,20 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		return map[string]bool{"succeeded": true}, ""
 	case "list":
 		list := action.NewList(cfg)
-		list.All = true
+		list.Limit = req.Max
+		list.Offset = req.Offset
 		list.AllNamespaces = req.AllNamespaces
 		list.Filter = req.Filter
+		list.Selector = req.Selector
+		list.Deployed = req.Deployed
+		list.Failed = req.Failed
+		list.Pending = req.Pending
+		list.Superseded = req.Superseded
+		list.Uninstalled = req.Uninstalled
+		list.Uninstalling = req.Uninstalling
+		list.ByDate = req.Date
+		list.SortReverse = req.Reverse
+		list.SetStateMask()
 		releases, err := list.Run()
 		if err != nil {
 			return nil, err.Error()
@@ -298,7 +405,7 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		return views, ""
 	case "template", "install", "upgrade":
 		if registry.IsOCI(req.Chart) && cfg.RegistryClient == nil {
-			client, err := registry.NewClient(registry.ClientOptCredentialsFile(settings.RegistryConfig))
+			client, err := newRegistryClient(req, settings.RegistryConfig)
 			if err != nil {
 				return nil, err.Error()
 			}
@@ -306,11 +413,21 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		}
 		install := action.NewInstall(cfg)
 		install.ChartPathOptions.Version = req.Version
+		applyChartPathOptions(&install.ChartPathOptions, req)
 		upgrade := action.NewUpgrade(cfg)
 		upgrade.ChartPathOptions.Version = req.Version
+		applyChartPathOptions(&upgrade.ChartPathOptions, req)
 		chartPathOptions := &install.ChartPathOptions
 		if req.Operation == "upgrade" {
 			chartPathOptions = &upgrade.ChartPathOptions
+		}
+		if req.PostRenderer != "" {
+			renderer, err := postrenderer.NewPostRendererPlugin(settings, req.PostRenderer, req.PostRendererArgs...)
+			if err != nil {
+				return nil, err.Error()
+			}
+			install.PostRenderer = renderer
+			upgrade.PostRenderer = renderer
 		}
 		chartPath, err := chartPathOptions.LocateChart(req.Chart, settings)
 		if err != nil {
@@ -319,6 +436,12 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		ch, err := loader.Load(chartPath)
 		if err != nil {
 			return nil, err.Error()
+		}
+		if req.Operation == "template" || req.Operation == "install" || req.Operation == "upgrade" {
+			ch, err = prepareChartDependencies(chartPath, ch, settings, cfg.RegistryClient, req)
+			if err != nil {
+				return nil, err.Error()
+			}
 		}
 		values := map[string]any{}
 		for _, file := range req.ValuesFiles {
@@ -343,23 +466,62 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		if req.Operation == "upgrade" && !installMode {
 			upgrade.Namespace = req.Namespace
 			upgrade.Timeout = timeout
-			upgrade.WaitStrategy = kube.HookOnlyStrategy
-			if req.Wait {
-				upgrade.WaitStrategy = kube.StatusWatcherStrategy
-			}
+			upgrade.DryRunStrategy = parseDryRun(req.DryRun)
+			upgrade.HideSecret = req.HideSecret
+			upgrade.DisableHooks = req.DisableHooks
+			upgrade.WaitForJobs = req.WaitForJobs
+			upgrade.RollbackOnFailure = req.RollbackOnFailure
+			upgrade.ResetValues = req.ResetValues
+			upgrade.ReuseValues = req.ReuseValues
+			upgrade.ResetThenReuseValues = req.ResetThenReuseValues
+			upgrade.DependencyUpdate = req.DependencyUpdate
+			upgrade.SkipCRDs = req.SkipCrds
+			upgrade.Devel = req.Devel
+			upgrade.SkipSchemaValidation = req.SkipSchemaValidation
+			upgrade.DisableOpenAPIValidation = req.DisableOpenApiValidation
+			upgrade.Description = req.Description
+			upgrade.WaitStrategy = requestedWaitStrategy(req)
+			upgrade.ForceReplace = req.ForceReplace
+			upgrade.ForceConflicts = req.ForceConflicts
+			upgrade.TakeOwnership = req.TakeOwnership
+			upgrade.CleanupOnFail = req.CleanupOnFail
 			releaseResult, err = upgrade.RunWithContext(ctx, req.ReleaseName, ch, values)
 		} else {
 			install.ReleaseName = req.ReleaseName
 			install.Namespace = req.Namespace
 			install.CreateNamespace = req.CreateNamespace
-			install.WaitStrategy = kube.HookOnlyStrategy
-			if req.Wait {
-				install.WaitStrategy = kube.StatusWatcherStrategy
-			}
+			install.WaitStrategy = requestedWaitStrategy(req)
 			install.Timeout = timeout
+			install.DryRunStrategy = parseDryRun(req.DryRun)
+			install.HideSecret = req.HideSecret
+			install.DisableHooks = req.DisableHooks
+			install.WaitForJobs = req.WaitForJobs
+			install.RollbackOnFailure = req.RollbackOnFailure
+			install.DependencyUpdate = req.DependencyUpdate
+			install.SkipCRDs = req.SkipCrds
+			install.Devel = req.Devel
+			install.SkipSchemaValidation = req.SkipSchemaValidation
+			install.DisableOpenAPIValidation = req.DisableOpenApiValidation
+			install.Description = req.Description
+			install.Replace = req.Replace
+			install.ForceReplace = req.ForceReplace
+			install.ForceConflicts = req.ForceConflicts
+			install.TakeOwnership = req.TakeOwnership
 			if req.Operation == "template" {
-				install.DryRunStrategy = action.DryRunClient
-				install.DisableHooks = true
+				install.DryRunStrategy = parseTemplateDryRun(req.DryRun)
+				install.HideSecret = req.HideSecret
+				install.Namespace = req.Namespace
+				install.DisableHooks = req.DisableHooks
+				install.IncludeCRDs = req.IncludeCrds
+				install.APIVersions = append(install.APIVersions, req.ApiVersions...)
+				install.IsUpgrade = req.IsUpgrade
+				if req.KubeVersion != "" {
+					version, parseErr := common.ParseKubeVersion(req.KubeVersion)
+					if parseErr != nil {
+						return nil, fmt.Sprintf("invalid kubeVersion: %v", parseErr)
+					}
+					install.KubeVersion = version
+				}
 			}
 			releaseResult, err = install.RunWithContext(ctx, ch, values)
 		}
@@ -367,7 +529,29 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 			return nil, err.Error()
 		}
 		if req.Operation == "template" {
-			return releaseResult.(*releasev1.Release).Manifest, ""
+			release := releaseResult.(*releasev1.Release)
+			if req.DisableHooks || len(release.Hooks) == 0 {
+				return release.Manifest, ""
+			}
+			var rendered strings.Builder
+			fmt.Fprintln(&rendered, strings.TrimSpace(release.Manifest))
+			renderedHook := false
+			if !req.DisableHooks {
+				for _, hook := range release.Hooks {
+					if len(hook.Events) == 0 {
+						continue
+					}
+					if req.SkipTests && slices.Contains(hook.Events, releasev1.HookTest) {
+						continue
+					}
+					fmt.Fprintf(&rendered, "---\n# Source: %s\n%s\n", hook.Path, hook.Manifest)
+					renderedHook = true
+				}
+			}
+			if !renderedHook {
+				return release.Manifest, ""
+			}
+			return rendered.String(), ""
 		}
 		view, err := releaseView(releaseResult)
 		if err != nil {
@@ -375,7 +559,9 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 		}
 		return view, ""
 	case "status":
-		releaseResult, err := action.NewStatus(cfg).Run(req.ReleaseName)
+		status := action.NewStatus(cfg)
+		status.Version = req.Revision
+		releaseResult, err := status.Run(req.ReleaseName)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -397,30 +583,46 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 			}
 			views = append(views, view)
 		}
+		if req.Max > 0 && len(views) > req.Max {
+			views = views[len(views)-req.Max:]
+		}
 		return views, ""
 	case "rollback":
 		rollback := action.NewRollback(cfg)
 		rollback.Version = req.Revision
-		rollback.WaitStrategy = kube.HookOnlyStrategy
-		if req.Wait {
-			rollback.WaitStrategy = kube.StatusWatcherStrategy
-		}
+		rollback.Timeout = timeout
+		rollback.WaitStrategy = requestedWaitStrategy(req)
+		rollback.WaitForJobs = req.WaitForJobs
+		rollback.DisableHooks = req.DisableHooks
+		rollback.DryRunStrategy = parseDryRun(req.DryRun)
+		rollback.ForceReplace = req.ForceReplace
+		rollback.ForceConflicts = req.ForceConflicts
+		rollback.CleanupOnFail = req.CleanupOnFail
+		rollback.MaxHistory = req.HistoryMax
+		rollback.Description = req.Description
 		if err := rollback.Run(req.ReleaseName); err != nil {
 			return nil, err.Error()
 		}
 		return map[string]bool{"succeeded": true}, ""
 	case "uninstall":
 		uninstall := action.NewUninstall(cfg)
-		uninstall.WaitStrategy = kube.HookOnlyStrategy
-		if req.Wait {
-			uninstall.WaitStrategy = kube.StatusWatcherStrategy
-		}
+		uninstall.WaitStrategy = requestedWaitStrategy(req)
+		uninstall.Timeout = timeout
+		uninstall.DisableHooks = req.DisableHooks
+		uninstall.DryRun = req.DryRunUninstall
+		uninstall.IgnoreNotFound = req.IgnoreNotFound
+		uninstall.KeepHistory = req.KeepHistory
+		uninstall.DeletionPropagation = req.Cascade
+		uninstall.Description = req.Description
 		if _, err := uninstall.Run(req.ReleaseName); err != nil {
 			return nil, err.Error()
 		}
 		return map[string]bool{"succeeded": true}, ""
 	case "values":
-		values, err := action.NewGetValues(cfg).Run(req.ReleaseName)
+		getValues := action.NewGetValues(cfg)
+		getValues.Version = req.Revision
+		getValues.AllValues = req.AllValues
+		values, err := getValues.Run(req.ReleaseName)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -429,58 +631,118 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 	return nil, errors.New("unreachable operation").Error()
 }
 
-func loadChartCatalog(settings *cli.EnvSettings, repositoryName string) ([]map[string]any, error) {
-	file, err := loadRepositoryFile(settings.RepositoryConfig)
+func parseDryRun(value string) action.DryRunStrategy {
+	switch value {
+	case "client":
+		return action.DryRunClient
+	case "server":
+		return action.DryRunServer
+	default:
+		return action.DryRunNone
+	}
+}
+
+func parseTemplateDryRun(value string) action.DryRunStrategy {
+	if value == "" || value == "none" || value == "client" {
+		return action.DryRunClient
+	}
+	return action.DryRunServer
+}
+
+func requestedWaitStrategy(req request) kube.WaitStrategy {
+	if req.WaitStrategy != "" {
+		return kube.WaitStrategy(req.WaitStrategy)
+	}
+	if req.Wait {
+		return kube.StatusWatcherStrategy
+	}
+	return kube.HookOnlyStrategy
+}
+
+func applyChartPathOptions(options *action.ChartPathOptions, req request) {
+	options.RepoURL = req.Repo
+	options.Username = req.RepositoryUsername
+	options.Password = req.RepositoryPassword
+	options.CaFile = req.CaFile
+	options.CertFile = req.CertFile
+	options.KeyFile = req.KeyFile
+	options.InsecureSkipTLSVerify = req.InsecureSkipTlsVerify
+	options.PassCredentialsAll = req.PassCredentials
+	options.PlainHTTP = req.PlainHttp
+}
+
+func newRegistryClient(req request, registryConfig string) (*registry.Client, error) {
+	options := []registry.ClientOption{
+		registry.ClientOptCredentialsFile(registryConfig),
+		registry.ClientOptBasicAuth(req.RepositoryUsername, req.RepositoryPassword),
+	}
+	if req.CertFile != "" && req.KeyFile != "" || req.CaFile != "" || req.InsecureSkipTlsVerify {
+		tlsConfig := &tls.Config{InsecureSkipVerify: req.InsecureSkipTlsVerify}
+		if req.CertFile != "" || req.KeyFile != "" {
+			certificate, err := tls.LoadX509KeyPair(req.CertFile, req.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("can't load registry client certificate: %w", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{certificate}
+		}
+		if req.CaFile != "" {
+			caPEM, err := os.ReadFile(req.CaFile)
+			if err != nil {
+				return nil, fmt.Errorf("can't read registry CA file: %w", err)
+			}
+			caCertificates := x509.NewCertPool()
+			if !caCertificates.AppendCertsFromPEM(caPEM) {
+				return nil, fmt.Errorf("can't parse registry CA file %q", req.CaFile)
+			}
+			tlsConfig.RootCAs = caCertificates
+		}
+		options = append(options, registry.ClientOptHTTPClient(&http.Client{
+			Transport: &http.Transport{TLSClientConfig: tlsConfig, Proxy: http.ProxyFromEnvironment},
+		}))
+	}
+	if req.PlainHttp {
+		options = append(options, registry.ClientOptPlainHTTP())
+	}
+	return registry.NewClient(options...)
+}
+
+func prepareChartDependencies(chartPath string, ch chartci.Charter, settings *cli.EnvSettings, registryClient *registry.Client, req request) (chartci.Charter, error) {
+	accessor, err := chartci.NewAccessor(ch)
 	if err != nil {
 		return nil, err
 	}
-	entries := file.Repositories
-	if repositoryName != "" {
-		var selected *repo.Entry
-		for _, entry := range entries {
-			if entry != nil && entry.Name == repositoryName {
-				selected = entry
-				break
-			}
-		}
-		if selected == nil {
-			return nil, fmt.Errorf("configured repository %q was not found; check ListRepositories() for exact repository names", repositoryName)
-		}
-		entries = []*repo.Entry{selected}
+	dependencies := accessor.MetaDependencies()
+	if len(dependencies) == 0 {
+		return ch, nil
 	}
-
-	results := make([]map[string]any, 0)
-	for _, entry := range entries {
-		if entry == nil {
-			return nil, errors.New("repository configuration contains an empty repository entry")
+	if err := action.CheckDependencies(ch, dependencies); err != nil {
+		if !req.DependencyUpdate {
+			return nil, fmt.Errorf("an error occurred while checking for chart dependencies. You may need to run 'helm dependency build' to fetch missing dependencies: %w", err)
 		}
-		indexPath := filepath.Join(settings.RepositoryCache, entry.Name+"-index.yaml")
-		index, err := repo.LoadIndexFile(indexPath)
+		getterOptions := []getter.Option{
+			getter.WithPassCredentialsAll(req.PassCredentials),
+			getter.WithTLSClientConfig(req.CertFile, req.KeyFile, req.CaFile),
+			getter.WithInsecureSkipVerifyTLS(req.InsecureSkipTlsVerify),
+			getter.WithPlainHTTP(req.PlainHttp),
+			getter.WithBasicAuth(req.RepositoryUsername, req.RepositoryPassword),
+		}
+		if registryClient != nil {
+			getterOptions = append(getterOptions, getter.WithRegistryClient(registryClient))
+		}
+		manager := &downloader.Manager{
+			Out: io.Discard, ChartPath: chartPath, Getters: getter.All(settings, getterOptions...),
+			RepositoryConfig: settings.RepositoryConfig, RepositoryCache: settings.RepositoryCache,
+			ContentCache: settings.ContentCache, RegistryClient: registryClient,
+		}
+		if err := manager.Update(); err != nil {
+			return nil, err
+		}
+		ch, err = loader.Load(chartPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load chart index for repository %q at %q: %w", entry.Name, indexPath, err)
-		}
-		for chartName, versions := range index.Entries {
-			for _, version := range versions {
-				if version == nil {
-					return nil, fmt.Errorf("chart index for repository %q contains an empty version entry for chart %q", entry.Name, chartName)
-				}
-				results = append(results, map[string]any{
-					"reference":   entry.Name + "/" + chartName,
-					"chartName":   chartName,
-					"version":     version.Version,
-					"description": chartDescription(version),
-				})
-			}
+			return nil, fmt.Errorf("failed reloading chart after repo update: %w", err)
 		}
 	}
-	return results, nil
-}
-
-func chartDescription(version *repo.ChartVersion) string {
-	if version == nil || version.Metadata == nil {
-		return ""
-	}
-	return version.Metadata.Description
+	return ch, nil
 }
 
 func loadRepositoryFile(path string) (*repo.File, error) {
@@ -507,9 +769,14 @@ func releaseView(value any) (map[string]any, error) {
 	}
 	status := ""
 	updated := time.Time{}
+	description, notes := "", ""
+	var resources any
 	if rel.Info != nil {
 		status = rel.Info.Status.String()
 		updated = rel.Info.LastDeployed
+		description = rel.Info.Description
+		notes = rel.Info.Notes
+		resources = rel.Info.Resources
 	}
 	return map[string]any{
 		"name":         rel.Name,
@@ -521,6 +788,10 @@ func releaseView(value any) (map[string]any, error) {
 		"chartName":    chartName,
 		"chartVersion": chartVersion,
 		"app_version":  appVersion,
+		"description":  description,
+		"notes":        notes,
+		"resources":    resources,
+		"hooks":        rel.Hooks,
 	}, nil
 }
 
