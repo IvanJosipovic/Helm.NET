@@ -3,6 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <!-- NativeAOT emits its own executable; avoid copying a managed intermediate apphost. -->
+    <UseAppHost Condition="'$(PublishAot)' == 'true'">false</UseAppHost>
     <!-- The shared test configuration enables extensions that this AOT host does not reference. -->
     <TestingPlatformCommandLineArguments />
   </PropertyGroup>
