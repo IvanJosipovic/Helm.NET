@@ -249,7 +249,7 @@ internal sealed class VersionedChartRepository : IDisposable
             {
                 context = _listener.GetContext();
             }
-            catch (HttpListenerException) when (!_listener.IsListening)
+            catch (HttpListenerException exception) when (!_listener.IsListening || exception.ErrorCode == 995)
             {
                 return;
             }
