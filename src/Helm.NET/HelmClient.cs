@@ -40,18 +40,26 @@ public sealed class HelmClient : IHelmClient
     public string GetManifest(string releaseName, int revision = 0) =>
         Invoke(new NativeHelmRequest("getManifest", releaseName, Revision: revision), NativeJsonContext.Default.String) ?? string.Empty;
 
-    /// <summary>Installs a chart and returns the created release.</summary>
-    public HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null)
+    /// <summary>Installs a chart using the default version resolution. Retained for binary compatibility.</summary>
+    public HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles, IReadOnlyDictionary<string, object?>? values, bool createNamespace, bool wait, TimeSpan? timeout) =>
+        Install(releaseName, chart, valuesFiles, values, createNamespace, wait, timeout, version: null);
+
+    /// <summary>Installs a chart, optionally selecting a chart version, and returns the created release.</summary>
+    public HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null)
     {
-        var request = new NativeHelmRequest("install", releaseName, chart, valuesFiles?.ToArray(), values, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0));
+        var request = new NativeHelmRequest("install", releaseName, chart, valuesFiles?.ToArray(), values, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0), Version: version);
         var response = Invoke(request, NativeJsonContext.Default.NativeHelmRelease);
         return response?.ToHelmRelease() ?? throw new InvalidOperationException("Helm returned no release for the install operation.");
     }
 
-    /// <summary>Upgrades an installed release.</summary>
-    public HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null)
+    /// <summary>Upgrades a release using the default version resolution. Retained for binary compatibility.</summary>
+    public HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles, IReadOnlyDictionary<string, object?>? values, bool installIfMissing, bool createNamespace, bool wait, TimeSpan? timeout) =>
+        Upgrade(releaseName, chart, valuesFiles, values, installIfMissing, createNamespace, wait, timeout, version: null);
+
+    /// <summary>Upgrades an installed release, optionally selecting a chart version.</summary>
+    public HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null)
     {
-        var request = new NativeHelmRequest("upgrade", releaseName, chart, valuesFiles?.ToArray(), values, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0), InstallIfMissing: installIfMissing);
+        var request = new NativeHelmRequest("upgrade", releaseName, chart, valuesFiles?.ToArray(), values, createNamespace, wait, (long)(timeout?.TotalMilliseconds ?? 0), InstallIfMissing: installIfMissing, Version: version);
         var response = Invoke(request, NativeJsonContext.Default.NativeHelmRelease);
         return response?.ToHelmRelease() ?? throw new InvalidOperationException("Helm returned no release for the upgrade operation.");
     }

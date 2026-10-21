@@ -20,6 +20,7 @@ import (
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/kube"
+	"helm.sh/helm/v4/pkg/registry"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
@@ -135,6 +136,10 @@ func execute(req request) (any, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	return executeAction(ctx, req, settings, cfg, timeout)
+}
+
+func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, cfg *action.Configuration, timeout time.Duration) (any, string) {
 	switch req.Operation {
 	case "repoList":
 		repositoryFileMu.Lock()
@@ -285,8 +290,21 @@ func execute(req request) (any, string) {
 		}
 		return views, ""
 	case "template", "install", "upgrade":
-		chartPathOptions := action.ChartPathOptions{}
-		chartPathOptions.Version = req.Version
+		if registry.IsOCI(req.Chart) && cfg.RegistryClient == nil {
+			client, err := registry.NewClient(registry.ClientOptCredentialsFile(settings.RegistryConfig))
+			if err != nil {
+				return nil, err.Error()
+			}
+			cfg.RegistryClient = client
+		}
+		install := action.NewInstall(cfg)
+		install.ChartPathOptions.Version = req.Version
+		upgrade := action.NewUpgrade(cfg)
+		upgrade.ChartPathOptions.Version = req.Version
+		chartPathOptions := &install.ChartPathOptions
+		if req.Operation == "upgrade" {
+			chartPathOptions = &upgrade.ChartPathOptions
+		}
 		chartPath, err := chartPathOptions.LocateChart(req.Chart, settings)
 		if err != nil {
 			return nil, err.Error()
@@ -316,7 +334,6 @@ func execute(req request) (any, string) {
 			}
 		}
 		if req.Operation == "upgrade" && !installMode {
-			upgrade := action.NewUpgrade(cfg)
 			upgrade.Namespace = req.Namespace
 			upgrade.Timeout = timeout
 			upgrade.WaitStrategy = kube.HookOnlyStrategy
@@ -325,7 +342,6 @@ func execute(req request) (any, string) {
 			}
 			releaseResult, err = upgrade.RunWithContext(ctx, req.ReleaseName, ch, values)
 		} else {
-			install := action.NewInstall(cfg)
 			install.ReleaseName = req.ReleaseName
 			install.Namespace = req.Namespace
 			install.CreateNamespace = req.CreateNamespace

@@ -20,11 +20,17 @@ public interface IHelmClient
     /// <summary>Gets the manifest stored in an installed release revision.</summary>
     string GetManifest(string releaseName, int revision = 0);
 
-    /// <summary>Installs a chart and returns the created release.</summary>
-    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    /// <summary>Installs a chart using the default version resolution. Retained for binary compatibility.</summary>
+    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles, IReadOnlyDictionary<string, object?>? values, bool createNamespace, bool wait, TimeSpan? timeout);
 
-    /// <summary>Upgrades an installed release.</summary>
-    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    /// <summary>Installs a chart, optionally selecting a chart version, and returns the created release.</summary>
+    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null);
+
+    /// <summary>Upgrades a release using the default version resolution. Retained for binary compatibility.</summary>
+    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles, IReadOnlyDictionary<string, object?>? values, bool installIfMissing, bool createNamespace, bool wait, TimeSpan? timeout);
+
+    /// <summary>Upgrades an installed release, optionally selecting a chart version.</summary>
+    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null);
 
     /// <summary>Gets the current release status.</summary>
     HelmRelease Status(string releaseName);

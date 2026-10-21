@@ -6,7 +6,7 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.AotSmoke/**
+      - tests/Helm.NET.Tests.AOT/**
       - tests/Helm.NET.Shared/**
       - tests/Helm.NET.Tests/**
       - Helm.NET.slnx
@@ -22,7 +22,7 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.AotSmoke/**
+      - tests/Helm.NET.Tests.AOT/**
       - tests/Helm.NET.Shared/**
       - tests/Helm.NET.Tests/**
       - Helm.NET.slnx

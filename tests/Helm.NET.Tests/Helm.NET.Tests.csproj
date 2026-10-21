@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Helm.NET.Shared\HelmClientScenarios.cs" Link="Shared\HelmClientScenarios.cs" />
+    <Compile Include="..\Helm.NET.Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

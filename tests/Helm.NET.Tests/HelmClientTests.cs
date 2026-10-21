@@ -116,6 +116,85 @@ public sealed class HelmClientTests
         request().GetProperty("operation").GetString().ShouldBe("upgrade");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises the public interface overload.")]
+    public void InstallAndUpgradeSerializeVersionAndPreserveOptions(bool upgrade)
+    {
+        const string response = """
+            {"data":{"name":"web","namespace":"apps","revision":"4","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
+            """;
+        IHelmClient client = CreateClient(response, out var request);
+        var values = new Dictionary<string, object?> { ["key"] = "value" };
+        var timeout = TimeSpan.FromSeconds(12.5);
+
+        var release = upgrade
+            ? client.Upgrade("web", "stable/nginx", ["values.yaml"], values, installIfMissing: true, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3")
+            : client.Install("web", "stable/nginx", ["values.yaml"], values, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3");
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe(upgrade ? "upgrade" : "install");
+        json.GetProperty("chart").GetString().ShouldBe("stable/nginx");
+        json.GetProperty("version").GetString().ShouldBe("1.2.3");
+        json.GetProperty("valuesFiles")[0].GetString().ShouldBe("values.yaml");
+        json.GetProperty("values").GetProperty("key").GetString().ShouldBe("value");
+        json.GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
+        json.GetProperty("wait").GetBoolean().ShouldBeTrue();
+        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(12500);
+        json.GetProperty("installIfMissing").GetBoolean().ShouldBe(upgrade);
+        json.GetProperty("revision").GetInt32().ShouldBe(0);
+        release.ChartVersion.ShouldBe("1.2.3");
+        release.Revision.ShouldBe("4");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises both class and interface compatibility overloads.")]
+    public void InstallAndUpgradeDefaultAndLegacyOverloadsOmitVersion(bool upgrade)
+    {
+        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
+        IHelmClient contract = client;
+
+        if (upgrade)
+            contract.Upgrade("web", "chart");
+        else
+            contract.Install("web", "chart");
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        if (upgrade)
+            client.Upgrade("web", "chart", null, null, false, false, false, null);
+        else
+            client.Install("web", "chart", null, null, false, false, null);
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        if (upgrade)
+            contract.Upgrade("web", "chart", null, null, false, false, false, null);
+        else
+            contract.Install("web", "chart", null, null, false, false, null);
+        request().GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InstallAndUpgradePropagateUnavailableVersionError(bool upgrade)
+    {
+        var client = CreateClient("{\"error\":\"chart version 99.0.0 not found\"}", out var request);
+
+        var exception = Should.Throw<HelmActionException>(() =>
+        {
+            if (upgrade)
+                client.Upgrade("web", "stable/nginx", installIfMissing: true, version: "99.0.0");
+            else
+                client.Install("web", "stable/nginx", version: "99.0.0");
+        });
+
+        exception.Message.ShouldBe("chart version 99.0.0 not found");
+        request().GetProperty("version").GetString().ShouldBe("99.0.0");
+    }
+
     [Fact]
     public void StatusMapsRelease()
     {
@@ -231,6 +310,12 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void SharedChartVersionsUseRealNativeResolution()
+    {
+        HelmClientScenarios.RunChartVersionScenarios(clusterLifecycle: false);
+    }
+
+    [Fact]
     public void SharedScenariosUseTheSameOperationsWithScriptedNativeResponses()
     {
         var requests = new List<JsonElement>();
@@ -309,7 +394,10 @@ public sealed class HelmClientTests
         requests[2].GetProperty("repositoryConfig").GetString()!.ShouldContain("repositories.yaml");
         requests[2].GetProperty("repositoryCache").GetString()!.ShouldContain("cache");
         requests[7].GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
+        requests[7].GetProperty("version").GetString().ShouldBe("1.0.0");
         requests[14].GetProperty("installIfMissing").GetBoolean().ShouldBeTrue();
+        requests[14].GetProperty("version").GetString().ShouldBe("1.0.0");
+        requests[21].GetProperty("version").GetString().ShouldBe("1.0.0");
         requests[17].GetProperty("revision").GetInt32().ShouldBe(1);
         requests[10].GetProperty("namespace").GetString().ShouldBe("helm-net-aot");
         requests[11].GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
@@ -483,4 +571,3 @@ public sealed class HelmClientTests
         }
     }
 }
-

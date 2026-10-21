@@ -20,6 +20,7 @@ try
     var helm = new HelmClient(new HelmClientOptions { Namespace = "helm-net-aot" });
     using var repository = new LocalHelmRepository("apiVersion: v1\nentries:\n  aot-smoke:\n  - apiVersion: v2\n    name: aot-smoke\n    version: 1.0.0\n    urls:\n    - aot-smoke-1.0.0.tgz\n");
     HelmClientScenarios.Run(helm, options => new HelmClient(options), chartDirectory, repository.Url, clusterLifecycle);
+    HelmClientScenarios.RunChartVersionScenarios(clusterLifecycle);
 
     Console.WriteLine(clusterLifecycle
         ? "NativeAOT Helm operation smoke test passed."

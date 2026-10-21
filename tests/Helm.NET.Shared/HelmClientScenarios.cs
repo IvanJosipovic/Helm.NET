@@ -4,7 +4,7 @@ using Helm.NET;
 namespace Helm.NET.Scenarios;
 
 /// <summary>Operation scenarios shared by response-scripted tests and NativeAOT smoke hosts.</summary>
-public static class HelmClientScenarios
+public static partial class HelmClientScenarios
 {
     public static void Run(HelmClient helm, Func<HelmClientOptions, HelmClient> createClient, string chartDirectory, string repositoryUrl, bool clusterLifecycle)
     {
@@ -50,7 +50,8 @@ public static class HelmClientScenarios
             values: new Dictionary<string, object?> { ["setting"] = "installed" },
             createNamespace: true,
             wait: true,
-            timeout: TimeSpan.FromMinutes(1));
+            timeout: TimeSpan.FromMinutes(1),
+            version: "1.0.0");
         Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
         Require(installed.ChartName == "aot-smoke" && installed.ChartVersion == "1.0.0", $"Unexpected chart metadata: {installed}");
         Require(helm.GetManifest(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "GetManifest did not return the stored release manifest.");
@@ -65,7 +66,8 @@ public static class HelmClientScenarios
             chartDirectory,
             values: new Dictionary<string, object?> { ["setting"] = "upgraded" },
             installIfMissing: true,
-            wait: true);
+            wait: true,
+            version: "1.0.0");
         Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
         RequireValue(helm.GetValues(releaseName), "upgraded");
         Require(helm.History(releaseName).Count >= 2, "Release history did not include the install and upgrade revisions.");
@@ -76,7 +78,7 @@ public static class HelmClientScenarios
         RequireValue(helm.GetValues(releaseName), "upgraded");
 
         const string secondaryRelease = "aot-smoke-nowait";
-        helm.Upgrade(secondaryRelease, chartDirectory, installIfMissing: true);
+        helm.Upgrade(secondaryRelease, chartDirectory, installIfMissing: true, version: "1.0.0");
         Require(helm.ListReleases().Any(release => release.Name == secondaryRelease), "Upgrade with install-if-missing did not create a release.");
         helm.Uninstall(secondaryRelease);
 
