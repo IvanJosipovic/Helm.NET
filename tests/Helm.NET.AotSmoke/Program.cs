@@ -163,7 +163,7 @@ sealed class LocalHelmRepository : IDisposable
             {
                 context = _listener.GetContext();
             }
-            catch (HttpListenerException) when (!_listener.IsListening)
+            catch (HttpListenerException)
             {
                 return;
             }
