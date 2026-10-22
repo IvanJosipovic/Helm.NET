@@ -7,8 +7,8 @@ namespace Helm.NET;
 public sealed record HelmRelease(
     string Name,
     string Namespace,
-    string Revision,
-    string Updated,
+    int Revision,
+    DateTimeOffset Updated,
     string Status,
     string Chart,
     [property: JsonPropertyName("app_version")] string AppVersion,
@@ -27,7 +27,7 @@ public sealed record HelmRelease(
 }
 
 /// <summary>Represents a Helm release hook and its last execution.</summary>
-public sealed record HelmReleaseHook(string Name, string Kind, string Path, string Manifest, IReadOnlyList<string> Events, string StartedAt, string CompletedAt, string Phase, int Weight, IReadOnlyList<string> DeletePolicies);
+public sealed record HelmReleaseHook(string Name, string Kind, string Path, string Manifest, IReadOnlyList<string> Events, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, string Phase, int Weight, IReadOnlyList<string> DeletePolicies);
 
 /// <summary>Represents a failed Helm action.</summary>
 public sealed class HelmActionException : Exception

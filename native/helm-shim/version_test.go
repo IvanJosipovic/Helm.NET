@@ -101,7 +101,7 @@ func TestChartVersionsAcrossTemplateInstallAndUpgrade(t *testing.T) {
 		}
 		return data
 	}
-	checkRelease := func(data any, version, revision string) {
+	checkRelease := func(data any, version string, revision int) {
 		t.Helper()
 		view, ok := data.(map[string]any)
 		if !ok || view["chartVersion"] != version || view["revision"] != revision || view["namespace"] != "apps" || view["status"] != "deployed" {
@@ -123,11 +123,11 @@ func TestChartVersionsAcrossTemplateInstallAndUpgrade(t *testing.T) {
 		}
 	}
 
-	checkRelease(run("install", "explicit", "1.0.0", false), "1.0.0", "1")
-	checkRelease(run("upgrade", "explicit", "2.0.0", false), "2.0.0", "2")
-	checkRelease(run("upgrade", "missing", "1.0.0", true), "1.0.0", "1")
-	checkRelease(run("install", "latest", "", false), "3.0.0", "1")
-	checkRelease(run("upgrade", "explicit", "", false), "3.0.0", "3")
+	checkRelease(run("install", "explicit", "1.0.0", false), "1.0.0", 1)
+	checkRelease(run("upgrade", "explicit", "2.0.0", false), "2.0.0", 2)
+	checkRelease(run("upgrade", "missing", "1.0.0", true), "1.0.0", 1)
+	checkRelease(run("install", "latest", "", false), "3.0.0", 1)
+	checkRelease(run("upgrade", "explicit", "", false), "3.0.0", 3)
 	checkRelease(run("upgrade", "latest-missing", "", true), "3.0.0", "1")
 	waitStrategies := cfg.KubeClient.(*kubefake.FailingKubeClient).RecordedWaitStrategies
 	if len(waitStrategies) == 0 {

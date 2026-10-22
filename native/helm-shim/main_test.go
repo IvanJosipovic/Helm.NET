@@ -370,7 +370,7 @@ func TestExecuteReleaseLifecycleInKindCluster(t *testing.T) {
 		Operation: "upgrade", ReleaseName: releaseName, Chart: chartDir,
 		Values: map[string]any{"setting": "upgraded"},
 	}).(map[string]any)
-	if !ok || upgraded["revision"] != "2" {
+	if !ok || upgraded["revision"] != 2 {
 		t.Fatalf("unexpected upgraded release: %#v", upgraded)
 	}
 
@@ -381,7 +381,7 @@ func TestExecuteReleaseLifecycleInKindCluster(t *testing.T) {
 
 	run(request{Operation: "rollback", ReleaseName: releaseName, Revision: 1})
 	rolledBack, ok := run(request{Operation: "status", ReleaseName: releaseName}).(map[string]any)
-	if !ok || rolledBack["revision"] != "3" {
+	if !ok || rolledBack["revision"] != 3 {
 		t.Fatalf("unexpected release after rollback: %#v", rolledBack)
 	}
 	values, ok = run(request{Operation: "values", ReleaseName: releaseName}).(map[string]any)
@@ -555,7 +555,7 @@ func TestReleaseViewMapsReleaseData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != "4" || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["chartName"] != "nginx" || view["chartVersion"] != "1.2.3" || view["app_version"] != "2.0" {
+	if view["name"] != "web" || view["namespace"] != "apps" || view["revision"] != 4 || view["status"] != "deployed" || view["chart"] != "nginx-1.2.3" || view["chartName"] != "nginx" || view["chartVersion"] != "1.2.3" || view["app_version"] != "2.0" {
 		t.Fatalf("unexpected release view: %#v", view)
 	}
 	if !view["updated"].(time.Time).Equal(deployed) {

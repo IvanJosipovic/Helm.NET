@@ -6,7 +6,7 @@ namespace Helm.NET.Tests;
 public sealed class HelmClientTests
 {
     private const string ReleaseJson = """
-        {"name":"web","namespace":"apps","revision":"3","updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","app_version":"2.0"}
+        {"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","app_version":"2.0"}
         """;
 
     [Fact]
@@ -28,7 +28,8 @@ public sealed class HelmClientTests
         var release = releases.ShouldHaveSingleItem();
         release.Name.ShouldBe("web");
         release.Namespace.ShouldBe("apps");
-        release.Revision.ShouldBe("3");
+        release.Revision.ShouldBe(3);
+        release.Updated.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
         release.Status.ShouldBe("deployed");
         release.Chart.ShouldBe("nginx-1.2.3");
         release.AppVersion.ShouldBe("2.0");
@@ -286,7 +287,7 @@ public sealed class HelmClientTests
     public void InstallAndUpgradeSerializeVersionAndPreserveOptions(bool upgrade)
     {
         const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":"4","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
+            {"data":{"name":"web","namespace":"apps","revision":4,"status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
             """;
         IHelmClient client = CreateClient(response, out var request);
         var values = ParseJsonElement("""{"key":"value"}""");
@@ -308,7 +309,7 @@ public sealed class HelmClientTests
         json.GetProperty("installIfMissing").GetBoolean().ShouldBe(upgrade);
         json.GetProperty("revision").GetInt32().ShouldBe(0);
         release.ChartVersion.ShouldBe("1.2.3");
-        release.Revision.ShouldBe("4");
+        release.Revision.ShouldBe(4);
     }
 
     [Theory]
@@ -355,7 +356,7 @@ public sealed class HelmClientTests
     public void StatusMapsReleaseDescriptionNotesResourcesAndTestHooks()
     {
         const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":"3","status":"deployed","chart":"nginx-1.2.3","description":"ready","notes":"visit service","resources":{"v1/Pod":[{"metadata":{"name":"web"}}]},"hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"}}]}}
+            {"data":{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","description":"ready","notes":"visit service","resources":{"v1/Pod":[{"metadata":{"name":"web"}}]},"hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"}}]}}
             """;
         var client = CreateClient(response, out _);
 
@@ -366,8 +367,8 @@ public sealed class HelmClientTests
         release.Resources!.Value.GetProperty("v1/Pod")[0].GetProperty("metadata").GetProperty("name").GetString().ShouldBe("web");
         var hook = release.Hooks.ShouldHaveSingleItem();
         hook.Name.ShouldBe("smoke");
-        hook.StartedAt.ShouldBe("2026-01-02T03:04:05Z");
-        hook.CompletedAt.ShouldBe("2026-01-02T03:04:06Z");
+        hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
+        hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
         hook.Phase.ShouldBe("Succeeded");
         release.Hooks[0].Events.ShouldContain("test");
     }

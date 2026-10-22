@@ -92,8 +92,9 @@ internal sealed class NativeHelmRelease
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = string.Empty;
-    public string Revision { get; init; } = string.Empty;
-    public string Updated { get; init; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    public int Revision { get; init; }
+    public DateTimeOffset Updated { get; init; }
     public string Status { get; init; } = string.Empty;
     public string Chart { get; init; } = string.Empty;
     [JsonPropertyName("app_version")] public string AppVersion { get; init; } = string.Empty;
@@ -127,7 +128,7 @@ internal sealed class NativeHelmHook
 
 internal sealed class NativeHelmHookExecution
 {
-    [JsonPropertyName("started_at")] public string StartedAt { get; init; } = string.Empty;
-    [JsonPropertyName("completed_at")] public string CompletedAt { get; init; } = string.Empty;
+    [JsonPropertyName("started_at")] public DateTimeOffset? StartedAt { get; init; }
+    [JsonPropertyName("completed_at")] public DateTimeOffset? CompletedAt { get; init; }
     public string Phase { get; init; } = string.Empty;
 }
