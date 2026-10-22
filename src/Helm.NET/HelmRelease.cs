@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using System.Text.Json;
 
 namespace Helm.NET;
@@ -11,7 +10,7 @@ public sealed record HelmRelease(
     DateTimeOffset Updated,
     string Status,
     string Chart,
-    [property: JsonPropertyName("app_version")] string AppVersion,
+    string AppVersion,
     string ChartName = "",
     string ChartVersion = "")
 {

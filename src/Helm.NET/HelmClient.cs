@@ -21,7 +21,7 @@ public sealed class HelmClient : IHelmClient
 
     /// <summary>Lists releases, optionally across all namespaces or matching a filter.</summary>
     public IReadOnlyList<HelmRelease> List(string? namespaceName = null, bool allNamespaces = false, string? filter = null, int max = 256, int offset = 0, string? selector = null, bool deployed = false, bool failed = false, bool pending = false, bool superseded = false, bool uninstalled = false, bool uninstalling = false, bool dateSort = false, bool reverse = false) =>
-        Invoke(new NativeHelmRequest("list", AllNamespaces: allNamespaces, Filter: filter, Max: max, Offset: offset, Selector: selector, Deployed: deployed, Failed: failed, Pending: pending, Superseded: superseded, Uninstalled: uninstalled, Uninstalling: uninstalling, Date: dateSort, Reverse: reverse, Namespace: namespaceName), NativeJsonContext.Default.HelmReleaseArray) ?? [];
+        Invoke(new NativeHelmRequest("list", AllNamespaces: allNamespaces, Filter: filter, Max: max, Offset: offset, Selector: selector, Deployed: deployed, Failed: failed, Pending: pending, Superseded: superseded, Uninstalled: uninstalled, Uninstalling: uninstalling, Date: dateSort, Reverse: reverse, Namespace: namespaceName), NativeJsonContext.Default.NativeHelmReleaseArray)?.Select(static release => release.ToHelmRelease()).ToArray() ?? [];
 
     /// <summary>Renders a chart locally and returns the rendered manifest.</summary>
     public string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false)
@@ -61,7 +61,7 @@ public sealed class HelmClient : IHelmClient
 
     /// <summary>Gets release revision history.</summary>
     public IReadOnlyList<HelmRelease> History(string releaseName, string? namespaceName = null, int max = 256) =>
-        Invoke(new NativeHelmRequest("history", releaseName, Max: max, Namespace: namespaceName), NativeJsonContext.Default.HelmReleaseArray) ?? [];
+        Invoke(new NativeHelmRequest("history", releaseName, Max: max, Namespace: namespaceName), NativeJsonContext.Default.NativeHelmReleaseArray)?.Select(static release => release.ToHelmRelease()).ToArray() ?? [];
 
     /// <summary>Rolls a release back to the specified revision, or its previous revision when zero.</summary>
     public void Rollback(string releaseName, int revision = 0, string? namespaceName = null, bool wait = false, string? waitStrategy = null, TimeSpan? timeout = null, bool waitForJobs = false, bool disableHooks = false, string? dryRun = null, bool forceReplace = false, bool forceConflicts = false, bool cleanupOnFail = false, int historyMax = 10, string? description = null) =>

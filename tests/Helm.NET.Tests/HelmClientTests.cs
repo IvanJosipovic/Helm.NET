@@ -163,7 +163,7 @@ public sealed class HelmClientTests
         manifestClient.GetManifest("web", "apps");
         manifestRequest().GetProperty("namespace").GetString().ShouldBe("apps");
 
-        var statusClient = CreateClient("{\"data\":{\"name\":\"web\"}}", out var statusRequest);
+        var statusClient = CreateClient("{\"data\":" + ReleaseJson + "}", out var statusRequest);
         statusClient.Status("web", "apps");
         statusRequest().GetProperty("namespace").GetString().ShouldBe("apps");
 
@@ -287,7 +287,7 @@ public sealed class HelmClientTests
     public void InstallAndUpgradeSerializeVersionAndPreserveOptions(bool upgrade)
     {
         const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":4,"status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
+            {"data":{"name":"web","namespace":"apps","revision":4,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
             """;
         IHelmClient client = CreateClient(response, out var request);
         var values = ParseJsonElement("""{"key":"value"}""");
@@ -356,7 +356,7 @@ public sealed class HelmClientTests
     public void StatusMapsReleaseDescriptionNotesResourcesAndTestHooks()
     {
         const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","description":"ready","notes":"visit service","resources":{"v1/Pod":[{"metadata":{"name":"web"}}]},"hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"}}]}}
+            {"data":{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","description":"ready","notes":"visit service","resources":{"v1/Pod":[{"metadata":{"name":"web"}}]},"hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"},"delete_policies":["before-hook-creation"]}]}}
             """;
         var client = CreateClient(response, out _);
 
@@ -370,7 +370,16 @@ public sealed class HelmClientTests
         hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
         hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
         hook.Phase.ShouldBe("Succeeded");
+        hook.DeletePolicies.ShouldHaveSingleItem().ShouldBe("before-hook-creation");
         release.Hooks[0].Events.ShouldContain("test");
+    }
+
+    [Fact]
+    public void StatusRejectsNativeReleaseWithoutUpdatedTimestamp()
+    {
+        var client = CreateClient("{\"data\":{\"name\":\"web\",\"revision\":3,\"status\":\"deployed\",\"chart\":\"nginx-1.2.3\"}}", out _);
+
+        Should.Throw<JsonException>(() => client.Status("web"));
     }
 
     [Fact]
@@ -382,6 +391,25 @@ public sealed class HelmClientTests
 
         request().GetProperty("operation").GetString().ShouldBe("history");
         request().GetProperty("releaseName").GetString().ShouldBe("web");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ListAndHistoryMapHookExecutionAndDeletePolicies(bool history)
+    {
+        const string response = """
+            {"data":[{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"},"delete_policies":["before-hook-creation"]}]}]}
+            """;
+        var client = CreateClient(response, out _);
+
+        var release = history ? client.History("web").ShouldHaveSingleItem() : client.List().ShouldHaveSingleItem();
+
+        var hook = release.Hooks.ShouldHaveSingleItem();
+        hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
+        hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
+        hook.Phase.ShouldBe("Succeeded");
+        hook.DeletePolicies.ShouldHaveSingleItem().ShouldBe("before-hook-creation");
     }
 
     [Fact]
