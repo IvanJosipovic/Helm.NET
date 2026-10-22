@@ -128,7 +128,7 @@ func TestChartVersionsAcrossTemplateInstallAndUpgrade(t *testing.T) {
 	checkRelease(run("upgrade", "missing", "1.0.0", true), "1.0.0", 1)
 	checkRelease(run("install", "latest", "", false), "3.0.0", 1)
 	checkRelease(run("upgrade", "explicit", "", false), "3.0.0", 3)
-	checkRelease(run("upgrade", "latest-missing", "", true), "3.0.0", "1")
+	checkRelease(run("upgrade", "latest-missing", "", true), "3.0.0", 1)
 	waitStrategies := cfg.KubeClient.(*kubefake.FailingKubeClient).RecordedWaitStrategies
 	if len(waitStrategies) == 0 {
 		t.Fatal("expected wait strategies to be recorded")
