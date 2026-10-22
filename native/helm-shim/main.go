@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -781,7 +780,7 @@ func releaseView(value any) (map[string]any, error) {
 	return map[string]any{
 		"name":         rel.Name,
 		"namespace":    rel.Namespace,
-		"revision":     strconv.Itoa(rel.Version),
+		"revision":     rel.Version,
 		"updated":      updated,
 		"status":       status,
 		"chart":        chartName + "-" + chartVersion,

@@ -91,7 +91,7 @@ public static partial class HelmClientScenarios
                 installed.Add(name);
                 return release;
             }
-            void Check(HelmRelease release, string version, string revision)
+            void Check(HelmRelease release, string version, int revision)
             {
                 Require(release.ChartName == "versioned" && release.ChartVersion == version, $"Wrong chart metadata: {release}");
                 Require(release.Revision == revision && release.Status == "deployed", $"Wrong release revision/status: {release}");
@@ -103,22 +103,22 @@ public static partial class HelmClientScenarios
                 Require(status.ChartVersion == version && status.Revision == revision, "Stored chart version/revision differs from action result.");
             }
 
-            Check(Install("selected", "1.0.0"), "1.0.0", "1");
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, wait: true, timeout: TimeSpan.FromMinutes(1), version: "2.0.0"), "2.0.0", "2");
+            Check(Install("selected", "1.0.0"), "1.0.0", 1);
+            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, wait: true, timeout: TimeSpan.FromMinutes(1), version: "2.0.0"), "2.0.0", 2);
             CheckVersionManifest(helm.GetManifest("selected", revision: 1), "1.0.0");
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values), "3.0.0", "3");
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: "1.0.0"), "1.0.0", "4");
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: ">=1.0.0 <3.0.0"), "2.0.0", "5");
+            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values), "3.0.0", 3);
+            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: "1.0.0"), "1.0.0", 4);
+            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: ">=1.0.0 <3.0.0"), "2.0.0", 5);
             var history = helm.History("selected");
-            Require(history.Count == 5 && history.Any(item => item.Revision == "2" && item.ChartVersion == "2.0.0"), "History lost chart version/revision metadata.");
+            Require(history.Count == 5 && history.Any(item => item.Revision == 2 && item.ChartVersion == "2.0.0"), "History lost chart version/revision metadata.");
             foreach (var version in new[] { "99.0.0", "not-a-version" })
                 RequireActionFailure(() => helm.Upgrade("selected", chart, version: version), version);
-            Require(helm.Status("selected").Revision == "5", "Failed version resolution changed the release.");
+            Require(helm.Status("selected").Revision == 5, "Failed version resolution changed the release.");
 
-            Check(Install("latest", null), "3.0.0", "1");
+            Check(Install("latest", null), "3.0.0", 1);
             var omitted = helm.Install("omitted", chart, values: [valuesFile], setValues: values, createNamespace: true);
             installed.Add("omitted");
-            Check(omitted, "3.0.0", "1");
+            Check(omitted, "3.0.0", 1);
             foreach (var (name, version, expected) in new (string Name, string? Version, string Expected)[]
             {
                 ("missing-selected", "1.0.0", "1.0.0"),
@@ -128,12 +128,12 @@ public static partial class HelmClientScenarios
             {
                 var release = helm.Upgrade(name, chart, values: [valuesFile], setValues: values, install: true, createNamespace: true, wait: true, timeout: TimeSpan.FromMinutes(1), version: version);
                 installed.Add(name);
-                Check(release, expected, "1");
+                Check(release, expected, 1);
             }
-            Check(Install("constraint", ">=1.0.0 <3.0.0"), "2.0.0", "1");
+            Check(Install("constraint", ">=1.0.0 <3.0.0"), "2.0.0", 1);
             var omittedMissing = helm.Upgrade("missing-omitted", chart, values: [valuesFile], setValues: values, install: true);
             installed.Add("missing-omitted");
-            Check(omittedMissing, "3.0.0", "1");
+            Check(omittedMissing, "3.0.0", 1);
         }
         finally
         {

@@ -152,7 +152,7 @@ public static partial class HelmClientScenarios
             takeOwnership: true,
             timeout: TimeSpan.FromMinutes(1),
             version: "1.0.0");
-        Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
+        Require(installed.Status == "deployed" && installed.Revision == 1, $"Unexpected install result: {installed}");
         Require(installed.ChartName == "aot-smoke" && installed.ChartVersion == "1.0.0", $"Unexpected chart metadata: {installed}");
         Require(helm.GetManifest(releaseName).Contains("name: aot-smoke", StringComparison.Ordinal), "GetManifest did not return the stored release manifest.");
         Require(helm.List().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
@@ -168,7 +168,7 @@ public static partial class HelmClientScenarios
             wait: true,
             waitStrategy: "watcher",
             version: "1.0.0");
-        Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
+        Require(upgraded.Status == "deployed" && upgraded.Revision == 2, $"Unexpected upgrade result: {upgraded}");
         RequireValue(helm.GetValues(releaseName), "upgraded");
         Require(helm.History(releaseName).Count >= 2, "Release history did not include the install and upgrade revisions.");
 
