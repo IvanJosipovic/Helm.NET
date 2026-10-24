@@ -117,6 +117,31 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void ShowValuesSerializesChartVersionAndDownloadOptions()
+    {
+        var client = CreateClient("{\"data\":\"replicas: 2\\n\"}", out var request);
+
+        client.ShowValues("oci://registry.example/charts/web", version: "1.2.3", username: "user", password: "password", plainHttp: true)
+            .ShouldBe("replicas: 2\n");
+
+        var json = request();
+        json.GetProperty("operation").GetString().ShouldBe("showValues");
+        json.GetProperty("chart").GetString().ShouldBe("oci://registry.example/charts/web");
+        json.GetProperty("version").GetString().ShouldBe("1.2.3");
+        json.GetProperty("repositoryUsername").GetString().ShouldBe("user");
+        json.GetProperty("repositoryPassword").GetString().ShouldBe("password");
+        json.GetProperty("plainHttp").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ShowValuesReturnsEmptyWhenNativeResponseHasNoData()
+    {
+        var client = CreateClient("{\"data\":null}", out _);
+
+        client.ShowValues("stable/nginx").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void TemplateSerializesRenderingAndChartDownloadOptions()
     {
         var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);

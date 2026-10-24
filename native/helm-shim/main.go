@@ -149,14 +149,16 @@ func handleJSON(input []byte) (encoded []byte) {
 
 func execute(req request) (any, string) {
 	switch req.Operation {
-	case "list", "template", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
+	case "list", "template", "showValues", "getManifest", "install", "upgrade", "uninstall", "status", "history", "rollback", "values", "repoList", "chartSearch", "repoAdd", "repoRemove", "repoUpdate":
 	default:
 		return nil, "unsupported operation: " + req.Operation
 	}
-	if req.Operation == "template" || req.Operation == "install" || req.Operation == "upgrade" {
+	if req.Operation == "showValues" || req.Operation == "template" || req.Operation == "install" || req.Operation == "upgrade" {
 		if req.Chart == "" {
 			return nil, "chart is required"
 		}
+	}
+	if req.Operation == "template" || req.Operation == "install" || req.Operation == "upgrade" {
 		if req.ReleaseName == "" {
 			return nil, "releaseName is required"
 		}
@@ -299,6 +301,26 @@ func executeAction(ctx context.Context, req request, settings *cli.EnvSettings, 
 			return nil, "no results found"
 		}
 		return results, ""
+	case "showValues":
+		if registry.IsOCI(req.Chart) && cfg.RegistryClient == nil {
+			client, err := newRegistryClient(req, settings.RegistryConfig)
+			if err != nil {
+				return nil, err.Error()
+			}
+			cfg.RegistryClient = client
+		}
+		show := action.NewShow(action.ShowValues, cfg)
+		show.ChartPathOptions.Version = req.Version
+		applyChartPathOptions(&show.ChartPathOptions, req)
+		chartPath, err := show.ChartPathOptions.LocateChart(req.Chart, settings)
+		if err != nil {
+			return nil, err.Error()
+		}
+		values, err := show.Run(chartPath)
+		if err != nil {
+			return nil, err.Error()
+		}
+		return values, ""
 	case "getManifest":
 		get := action.NewGet(cfg)
 		get.Version = req.Revision

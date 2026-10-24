@@ -86,6 +86,10 @@ public sealed class HelmClient : IHelmClient
     public IReadOnlyList<HelmChartSearchResult> SearchRepo(string keyword = "", bool versions = false, bool devel = false, bool regexp = false, string? version = null, bool failOnNoResult = false) =>
         Invoke(new NativeHelmRequest("chartSearch", SearchTerm: keyword, Versions: versions, Devel: devel, Regexp: regexp, VersionConstraint: version, FailOnNoResult: failOnNoResult), NativeJsonContext.Default.HelmChartSearchResultArray) ?? [];
 
+    /// <summary>Returns a chart's default <c>values.yaml</c> content.</summary>
+    public string ShowValues(string chart, string? version = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false) =>
+        Invoke(new NativeHelmRequest("showValues", Chart: chart, Version: version, Repo: repo, RepositoryUsername: username, RepositoryPassword: password, CaFile: caFile, CertFile: certFile, KeyFile: keyFile, InsecureSkipTlsVerify: insecureSkipTlsVerify, PassCredentials: passCredentials, PlainHttp: plainHttp), NativeJsonContext.Default.String) ?? string.Empty;
+
     /// <summary>Adds a chart repository; replaces an existing entry only when forceUpdate is true.</summary>
     public void RepoAdd(string name, string url, string? username = null, string? password = null, bool forceUpdate = false) =>
         _ = Invoke(new NativeHelmRequest("repoAdd", RepositoryName: name, RepositoryURL: url, RepositoryUsername: username, RepositoryPassword: password, ForceUpdate: forceUpdate), NativeJsonContext.Default.NativeHelmAck);

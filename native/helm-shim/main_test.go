@@ -52,13 +52,15 @@ func TestNewRegistryClientRejectsInvalidCABundle(t *testing.T) {
 }
 
 func TestExecuteRequiresChartAndReleaseName(t *testing.T) {
-	for _, operation := range []string{"template", "install", "upgrade"} {
+	for _, operation := range []string{"template", "install", "upgrade", "showValues"} {
 		t.Run(operation+" requires chart", func(t *testing.T) {
 			_, got := execute(request{Operation: operation, ReleaseName: "web"})
 			if got != "chart is required" {
 				t.Fatalf("got %q", got)
 			}
 		})
+	}
+	for _, operation := range []string{"template", "install", "upgrade"} {
 		t.Run(operation+" requires release name", func(t *testing.T) {
 			_, got := execute(request{Operation: operation, Chart: "./chart"})
 			if got != "releaseName is required" {

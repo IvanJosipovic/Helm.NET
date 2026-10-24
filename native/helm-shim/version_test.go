@@ -47,6 +47,7 @@ func versionTestRepository(t *testing.T) *cli.EnvSettings {
 		ch := &chart.Chart{
 			Metadata: &chart.Metadata{APIVersion: "v2", Name: "example", Version: version},
 			Values:   map[string]any{"setting": "default"},
+			Raw:      []*common.File{{Name: "values.yaml", Data: []byte("setting: default\n")}},
 			Templates: []*common.File{{
 				Name: "templates/configmap.yaml",
 				Data: []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\n  namespace: {{ .Release.Namespace }}\ndata:\n  version: {{ .Chart.Version | quote }}\n  setting: {{ .Values.setting | quote }}\n  fromFile: {{ .Values.fromFile | quote }}\n"),
