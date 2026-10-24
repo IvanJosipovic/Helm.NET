@@ -51,6 +51,21 @@ public interface IHelmClient
     /// <param name="plainHttp">Uses plain HTTP for chart downloads.</param>
     string Template(string name, string chart, string? namespaceName = null, IEnumerable<string>? values = null, JsonElement? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
 
+    /// <summary>Returns a chart's default <c>values.yaml</c> content.</summary>
+    /// <param name="chart">Chart reference or local chart path.</param>
+    /// <param name="version">Optional chart version.</param>
+    /// <param name="repo">Optional chart repository URL.</param>
+    /// <param name="username">Optional repository or registry username.</param>
+    /// <param name="password">Optional repository or registry password.</param>
+    /// <param name="caFile">Optional CA bundle used to verify the chart source.</param>
+    /// <param name="certFile">Optional client certificate.</param>
+    /// <param name="keyFile">Optional client key.</param>
+    /// <param name="insecureSkipTlsVerify">Whether to skip TLS certificate verification.</param>
+    /// <param name="passCredentials">Whether to pass repository credentials to all domains.</param>
+    /// <param name="plainHttp">Whether to use plain HTTP for OCI registries.</param>
+    /// <returns>The chart's default YAML values.</returns>
+    string ShowValues(string chart, string? version = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false);
+
     /// <summary>Gets the manifest stored in an installed release revision.</summary>
     /// <param name="releaseName">Release name.</param>
     /// <param name="namespaceName">Release namespace, or the configured default namespace when omitted.</param>

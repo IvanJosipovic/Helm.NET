@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"helm.sh/helm/v4/pkg/action"
 	chartci "helm.sh/helm/v4/pkg/chart"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	chartloader "helm.sh/helm/v4/pkg/chart/v2/loader"
@@ -119,6 +120,29 @@ func TestChartSearchUsesCachedIndexes(t *testing.T) {
 	data, message = executeAction(context.Background(), request{Operation: "chartSearch"}, settings, nil, time.Second)
 	if message != "" || len(data.([]map[string]any)) != 3 {
 		t.Fatalf("expected empty query to list latest stable charts: %#v, %q", data, message)
+	}
+}
+
+func TestShowValuesReturnsChartDefaults(t *testing.T) {
+	settings := chartCatalogSettings(t, false)
+	chartPath := filepath.Join(t.TempDir(), "chart")
+	if err := os.MkdirAll(chartPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chartPath, "Chart.yaml"), []byte("apiVersion: v2\nname: defaults\nversion: 1.2.3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const expected = "replicas: 2\nimage:\n  tag: stable\n"
+	if err := os.WriteFile(filepath.Join(chartPath, "values.yaml"), []byte(expected), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	data, message := executeAction(context.Background(), request{Operation: "showValues", Chart: chartPath}, settings, action.NewConfiguration(), time.Second)
+	if message != "" {
+		t.Fatalf("showing chart defaults failed: %s", message)
+	}
+	if got, ok := data.(string); !ok || got != expected+"\n" {
+		t.Fatalf("expected original values.yaml text, got %#v", data)
 	}
 }
 
