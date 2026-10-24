@@ -15,9 +15,12 @@ import (
 
 	"helm.sh/helm/v4/pkg/action"
 	chartci "helm.sh/helm/v4/pkg/chart"
+	chartcommon "helm.sh/helm/v4/pkg/chart/common"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	chartloader "helm.sh/helm/v4/pkg/chart/v2/loader"
+	chartutil "helm.sh/helm/v4/pkg/chart/v2/util"
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/registry"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 )
 
@@ -144,6 +147,128 @@ func TestShowValuesReturnsChartDefaults(t *testing.T) {
 	if got, ok := data.(string); !ok || got != expected+"\n" {
 		t.Fatalf("expected original values.yaml text, got %#v", data)
 	}
+}
+
+func TestShowValuesFromRepositoryUsesRequestedVersion(t *testing.T) {
+	settings := versionTestRepository(t)
+
+	data, message := executeAction(context.Background(), request{
+		Operation: "showValues", Chart: "test/example", Version: "2.0.0",
+	}, settings, action.NewConfiguration(), time.Second)
+	if message != "" {
+		t.Fatalf("showing repository chart defaults failed: %s", message)
+	}
+	if got, ok := data.(string); !ok || !strings.Contains(got, "setting: default") {
+		t.Fatalf("expected versioned repository values.yaml, got %#v", data)
+	}
+}
+
+func TestShowValuesDownloadsAuthenticatedRepositoryChart(t *testing.T) {
+	chartDirectory := t.TempDir()
+	_, err := chartutil.Save(&chart.Chart{
+		Metadata: &chart.Metadata{APIVersion: "v2", Name: "private", Version: "1.2.3"},
+		Raw:      []*chartcommon.File{{Name: "values.yaml", Data: []byte("replicas: 2\n")}},
+	}, chartDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "chart-user" || password != "chart-password" {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		http.FileServer(http.Dir(chartDirectory)).ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	index, err := repo.IndexDirectory(chartDirectory, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := index.WriteFile(filepath.Join(chartDirectory, "index.yaml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := chartCatalogSettings(t, false)
+	data, message := executeAction(context.Background(), request{
+		Operation: "showValues", Chart: "private", Version: "1.2.3", Repo: server.URL,
+		RepositoryUsername: "chart-user", RepositoryPassword: "chart-password",
+	}, settings, action.NewConfiguration(), time.Second)
+	if message != "" {
+		t.Fatalf("showing authenticated repository chart defaults failed: %s", message)
+	}
+	if got, ok := data.(string); !ok || !strings.Contains(got, "replicas: 2") {
+		t.Fatalf("expected authenticated chart defaults, got %#v", data)
+	}
+}
+
+func TestShowValuesReportsLocateAndLoadFailures(t *testing.T) {
+	settings := chartCatalogSettings(t, false)
+	t.Run("chart cannot be located", func(t *testing.T) {
+		_, message := executeAction(context.Background(), request{
+			Operation: "showValues", Chart: filepath.Join(t.TempDir(), "missing-chart"),
+		}, settings, action.NewConfiguration(), time.Second)
+		if message == "" {
+			t.Fatal("expected chart location failure")
+		}
+	})
+
+	t.Run("chart cannot be loaded", func(t *testing.T) {
+		chartPath := filepath.Join(t.TempDir(), "invalid-chart")
+		if err := os.MkdirAll(chartPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(chartPath, "Chart.yaml"), []byte("not: [valid"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, message := executeAction(context.Background(), request{
+			Operation: "showValues", Chart: chartPath,
+		}, settings, action.NewConfiguration(), time.Second)
+		if message == "" {
+			t.Fatal("expected chart loading failure")
+		}
+	})
+
+	t.Run("OCI client is initialized before invalid reference is rejected", func(t *testing.T) {
+		cfg := action.NewConfiguration()
+		_, message := executeAction(context.Background(), request{
+			Operation: "showValues", Chart: "oci://",
+		}, settings, cfg, time.Second)
+		if message == "" {
+			t.Fatal("expected invalid OCI chart reference failure")
+		}
+		if cfg.RegistryClient == nil {
+			t.Fatal("expected Helm registry client initialization")
+		}
+	})
+
+	t.Run("OCI client initialization failure is returned", func(t *testing.T) {
+		caFile := filepath.Join(t.TempDir(), "invalid-ca.pem")
+		if err := os.WriteFile(caFile, []byte("not a PEM certificate"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, message := executeAction(context.Background(), request{
+			Operation: "showValues", Chart: "oci://registry.invalid/charts/web", CaFile: caFile,
+		}, settings, action.NewConfiguration(), time.Second)
+		if !strings.Contains(message, "can't parse registry CA file") {
+			t.Fatalf("expected registry client configuration error, got %q", message)
+		}
+	})
+
+	t.Run("existing OCI client is reused", func(t *testing.T) {
+		client, err := registry.NewClient()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := action.NewConfiguration()
+		cfg.RegistryClient = client
+		_, message := executeAction(context.Background(), request{
+			Operation: "showValues", Chart: "oci://",
+		}, settings, cfg, time.Second)
+		if message == "" {
+			t.Fatal("expected invalid OCI chart reference failure")
+		}
+	})
 }
 
 func TestChartSearchHandlesEmptyMissingAndMalformedIndexes(t *testing.T) {
