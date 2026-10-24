@@ -6,6 +6,15 @@ coverage:
       default:
         target: 90%
         threshold: 0.1%
+        paths:
+          - src/Helm.NET
+      go:
+        target: 80%
+        threshold: 0.1%
+        flags:
+          - go
+        paths:
+          - native/helm-shim
     patch:
       default:
         target: 100%

@@ -134,6 +134,14 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void ShowValuesReturnsEmptyWhenNativeResponseHasNoData()
+    {
+        var client = CreateClient("{\"data\":null}", out _);
+
+        client.ShowValues("stable/nginx").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void TemplateSerializesRenderingAndChartDownloadOptions()
     {
         var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
