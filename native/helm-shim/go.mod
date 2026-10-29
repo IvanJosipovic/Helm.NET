@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	helm.sh/helm/v4 v4.3.1
-	k8s.io/apimachinery v0.37.1
+	k8s.io/apimachinery v0.37.2
 )
 
 require (
