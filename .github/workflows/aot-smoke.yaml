@@ -93,7 +93,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
 
       - name: Provision an ephemeral Kubernetes cluster
-        uses: helm/kind-action@v1.15.1
+        uses: helm/kind-action@v1.15.2
 
       - name: Publish NativeAOT smoke application
         run: >-
