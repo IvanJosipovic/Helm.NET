@@ -17,7 +17,7 @@ try
         Path.Combine(chartDirectory, "templates", "configmap.yaml"),
         "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  setting: {{ .Values.setting | quote }}\n");
 
-    var helm = new HelmClient(new HelmClientOptions { Namespace = "helm-net-aot" });
+    var helm = new HelmClient(new HelmClientOptions { DefaultNamespace = "helm-net-aot" });
     if (clusterLifecycle)
     {
         RunClusterLifecycle(helm, chartDirectory);
@@ -26,6 +26,21 @@ try
     {
         var manifest = helm.Template("aot-smoke", chartDirectory);
         Require(manifest.Contains("name: aot-smoke", StringComparison.Ordinal), $"Unexpected rendered manifest:\n{manifest}");
+
+        var advancedManifest = helm.Template(
+            "aot-smoke",
+            chartDirectory,
+            namespaceName: "helm-net-aot",
+            values: [Path.Combine(chartDirectory, "smoke-values.yaml")],
+            setValues: CreateValues("typed-abi"),
+            apiVersions: ["v1"],
+            kubeVersion: "1.31",
+            includeCrds: true,
+            skipTests: true);
+        Require(advancedManifest.Contains("setting: \"typed-abi\"", StringComparison.Ordinal), $"Advanced template options were not applied:\n{advancedManifest}");
+        Require(helm.ShowValues(chartDirectory).Contains("setting: default", StringComparison.Ordinal), "ShowValues did not return the chart's default values.");
+        Require(helm.SearchRepo("no-match").Count == 0, "SearchRepo returned results for an empty local index.");
+        RunRepositoryOperations(chartDirectory);
     }
 
     Console.WriteLine(clusterLifecycle
@@ -55,7 +70,7 @@ static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
         createNamespace: true,
         wait: true,
         timeout: TimeSpan.FromMinutes(1));
-    Require(installed.Status == "deployed" && installed.Revision == "1", $"Unexpected install result: {installed}");
+    Require(installed.Status == "deployed" && installed.Revision == 1, $"Unexpected install result: {installed}");
     Require(helm.ListReleases().Any(release => release.Name == releaseName), "The release is missing from the namespace list.");
     Require(helm.ListReleases(allNamespaces: true, filter: "^aot-smoke$").Any(release => release.Name == releaseName), "The release is missing from the filtered all-namespaces list.");
     Require(helm.Status(releaseName).Status == "deployed", "Status did not report the installed release as deployed.");
@@ -67,7 +82,7 @@ static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
         values: CreateValues("upgraded"),
         installIfMissing: true,
         wait: true);
-    Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
+    Require(upgraded.Status == "deployed" && upgraded.Revision == 2, $"Unexpected upgrade result: {upgraded}");
     RequireValue(helm.GetValues(releaseName), "upgraded");
     Require(helm.History(releaseName).Count >= 2, "Release history did not include the install and upgrade revisions.");
 
@@ -100,9 +115,11 @@ static void RunRepositoryOperations(string chartDirectory)
 
     helm.AddRepository("aot-smoke", repository.Url);
     Require(helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The added chart repository is missing.");
-    helm.UpdateRepositories();
-    helm.RemoveRepository("aot-smoke");
-    Require(!helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
+    helm.RepoAdd("aot-smoke", repository.Url, username: "typed-abi", forceUpdate: true);
+    Require(helm.RepoList().Any(item => item.Name == "aot-smoke"), "The force-updated chart repository is missing.");
+    helm.RepoUpdate();
+    helm.RepoRemove("aot-smoke");
+    Require(!helm.RepoList().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
 }
 
 static JsonElement CreateValues(string setting)

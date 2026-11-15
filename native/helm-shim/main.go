@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -33,29 +35,87 @@ import (
 )
 
 type request struct {
-	Operation           string
-	Kubeconfig          string
-	KubeContext         string
-	Namespace           string
-	Chart               string
-	ReleaseName         string
-	ValuesFiles         []string
-	Values              map[string]any
-	Wait                bool
-	CreateNamespace     bool
-	TimeoutMilliseconds int64
-	AllNamespaces       bool
-	Filter              string
-	Revision            int
-	InstallIfMissing    bool
-	RepositoryConfig    string
-	RepositoryCache     string
-	RegistryConfig      string
-	HelmDriver          string
-	RepositoryName      string
-	RepositoryURL       string
-	RepositoryUsername  string
-	RepositoryPassword  string
+	Operation                string
+	Kubeconfig               string
+	KubeContext              string
+	Namespace                string
+	Chart                    string
+	ReleaseName              string
+	ValuesFiles              []string
+	Values                   map[string]any
+	Wait                     bool
+	CreateNamespace          bool
+	TimeoutMilliseconds      int64
+	AllNamespaces            bool
+	Filter                   string
+	Revision                 int
+	InstallIfMissing         bool
+	RepositoryConfig         string
+	RepositoryCache          string
+	RegistryConfig           string
+	HelmDriver               string
+	RepositoryName           string
+	RepositoryURL            string
+	RepositoryUsername       string
+	RepositoryPassword       string
+	ForceUpdate              bool
+	Version                  string
+	SearchTerm               string
+	AllValues                bool
+	Versions                 bool
+	Devel                    bool
+	Regexp                   bool
+	VersionConstraint        string
+	FailOnNoResult           bool
+	Max                      int
+	Offset                   int
+	Selector                 string
+	Deployed                 bool
+	Failed                   bool
+	Pending                  bool
+	Superseded               bool
+	Uninstalled              bool
+	Uninstalling             bool
+	Date                     bool
+	ResetValues              bool
+	ReuseValues              bool
+	ResetThenReuseValues     bool
+	DryRun                   string
+	HideSecret               bool
+	DisableHooks             bool
+	PostRenderer             string
+	PostRendererArgs         []string
+	WaitForJobs              bool
+	RollbackOnFailure        bool
+	Reverse                  bool
+	DependencyUpdate         bool
+	SkipCrds                 bool
+	SkipSchemaValidation     bool
+	DisableOpenApiValidation bool
+	Description              string
+	WaitStrategy             string
+	Replace                  bool
+	ForceReplace             bool
+	ForceConflicts           bool
+	TakeOwnership            bool
+	CleanupOnFail            bool
+	HistoryMax               int
+	DryRunUninstall          bool
+	IgnoreNotFound           bool
+	KeepHistory              bool
+	Cascade                  string
+	Repo                     string
+	CaFile                   string
+	CertFile                 string
+	KeyFile                  string
+	InsecureSkipTlsVerify    bool
+	PassCredentials          bool
+	PlainHttp                bool
+	ApiVersions              []string
+	KubeVersion              string
+	IncludeCrds              bool
+	SkipTests                bool
+	IsUpgrade                bool
 }
 
 var repositoryFileMu sync.Mutex

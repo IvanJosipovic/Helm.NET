@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,48 @@ func TestRequestFromNativeMapsFieldsAndDynamicValues(t *testing.T) {
 	}
 }
 
+func TestRequestFromNativeMapsHelmCliOptions(t *testing.T) {
+	got, err := requestFromNative(nativeRequest{
+		ABIVersion: nativeABIVersion, Operation: "upgrade", Version: "1.2.3", SearchTerm: "nginx",
+		Versions: true, Devel: true, Regexp: true, VersionConstraint: ">=1.0", FailOnNoResult: true,
+		Max: 12, Offset: 3, Selector: "app=web", Deployed: true, Failed: true, Pending: true,
+		Superseded: true, Uninstalled: true, Uninstalling: true, Date: true, Reverse: true,
+		ResetValues: true, ReuseValues: true, ResetThenReuseValues: true, DryRun: "server",
+		HideSecret: true, DisableHooks: true, PostRenderer: "renderer", PostRendererArgs: []string{"--flag"},
+		WaitForJobs: true, RollbackOnFailure: true, DependencyUpdate: true, SkipCrds: true,
+		SkipSchemaValidation: true, DisableOpenApiValidation: true, Description: "description",
+		ForceUpdate: true, WaitStrategy: "watcher", Replace: true, ForceReplace: true,
+		ForceConflicts: true, TakeOwnership: true, CleanupOnFail: true, HistoryMax: 20,
+		DryRunUninstall: true, IgnoreNotFound: true, KeepHistory: true, Cascade: "foreground",
+		Repo: "https://charts.example", CaFile: "ca.pem", CertFile: "client.pem", KeyFile: "client.key",
+		InsecureSkipTlsVerify: true, PassCredentials: true, PlainHttp: true,
+		ApiVersions: []string{"v1", "apps/v1"}, KubeVersion: "1.31", IncludeCrds: true,
+		SkipTests: true, IsUpgrade: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Version != "1.2.3" || got.SearchTerm != "nginx" || !got.Versions || !got.Devel || !got.Regexp || got.VersionConstraint != ">=1.0" || !got.FailOnNoResult {
+		t.Fatalf("chart search options were not preserved: %#v", got)
+	}
+	if got.Max != 12 || got.Offset != 3 || got.Selector != "app=web" || !got.Deployed || !got.Failed || !got.Pending || !got.Superseded || !got.Uninstalled || !got.Uninstalling || !got.Date || !got.Reverse {
+		t.Fatalf("list options were not preserved: %#v", got)
+	}
+	if !got.ResetValues || !got.ReuseValues || !got.ResetThenReuseValues || got.DryRun != "server" || !got.HideSecret || !got.DisableHooks || got.PostRenderer != "renderer" || len(got.PostRendererArgs) != 1 {
+		t.Fatalf("render/upgrade options were not preserved: %#v", got)
+	}
+	if !got.WaitForJobs || !got.RollbackOnFailure || !got.DependencyUpdate || !got.SkipCrds || !got.SkipSchemaValidation || !got.DisableOpenApiValidation || got.Description != "description" || !got.ForceUpdate || got.WaitStrategy != "watcher" {
+		t.Fatalf("install options were not preserved: %#v", got)
+	}
+	if !got.Replace || !got.ForceReplace || !got.ForceConflicts || !got.TakeOwnership || !got.CleanupOnFail || got.HistoryMax != 20 || !got.DryRunUninstall || !got.IgnoreNotFound || !got.KeepHistory || got.Cascade != "foreground" {
+		t.Fatalf("rollback/uninstall options were not preserved: %#v", got)
+	}
+	if got.Repo != "https://charts.example" || got.CaFile != "ca.pem" || got.CertFile != "client.pem" || got.KeyFile != "client.key" || !got.InsecureSkipTlsVerify || !got.PassCredentials || !got.PlainHttp || len(got.ApiVersions) != 2 || got.KubeVersion != "1.31" || !got.IncludeCrds || !got.SkipTests || !got.IsUpgrade {
+		t.Fatalf("chart source/capability options were not preserved: %#v", got)
+	}
+}
+
 func TestRequestFromNativeLeavesOmittedOptionalFieldsEmpty(t *testing.T) {
 	got, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion, Operation: "list"})
 	if err != nil {
@@ -105,7 +148,7 @@ func TestRequestFromNativeRejectsInvalidValuesJSON(t *testing.T) {
 func TestResponseFromResultEncodesTypedResultKinds(t *testing.T) {
 	deployed := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.FixedZone("UTC+2", 2*60*60))
 	release := map[string]any{
-		"name": "web", "namespace": "apps", "revision": "3", "updated": deployed,
+		"name": "web", "namespace": "apps", "revision": 3, "updated": deployed,
 		"status": "deployed", "chart": "nginx-1.2.3", "app_version": "2.0",
 	}
 	tests := []struct {
@@ -118,6 +161,7 @@ func TestResponseFromResultEncodesTypedResultKinds(t *testing.T) {
 		{name: "single release", operation: "status", data: release, kind: nativeResultRelease},
 		{name: "release array", operation: "list", data: []map[string]any{release}, kind: nativeResultReleases},
 		{name: "repository array", operation: "repoList", data: []map[string]string{{"name": "stable", "url": "https://example.test"}}, kind: nativeResultRepositories},
+		{name: "chart search array", operation: "chartSearch", data: []map[string]any{{"reference": "stable/nginx", "chartName": "nginx", "version": "1.2.3", "app_version": "2.0", "description": "Nginx chart"}}, kind: nativeResultChartSearchResults},
 		{name: "dynamic JSON", operation: "values", data: map[string]any{"nested": map[string]any{"enabled": true}}, kind: nativeResultJSON},
 		{name: "acknowledgement", operation: "repoUpdate", data: nil, kind: nativeResultAck},
 	}
@@ -134,25 +178,32 @@ func TestResponseFromResultEncodesTypedResultKinds(t *testing.T) {
 				}
 			case nativeResultRelease:
 				want := nativeRelease{
-					Name: "web", Namespace: "apps", Revision: "3",
+					Name: "web", Namespace: "apps", Revision: 3,
 					Updated: deployed.Format(time.RFC3339Nano), Status: "deployed",
 					Chart: "nginx-1.2.3", AppVersion: "2.0",
 				}
-				if got.Release == nil || *got.Release != want {
+				if got.Release == nil || !reflect.DeepEqual(*got.Release, want) {
 					t.Fatalf("got release %#v, want %#v", got.Release, want)
 				}
 			case nativeResultReleases:
 				want := nativeRelease{
-					Name: "web", Namespace: "apps", Revision: "3",
+					Name: "web", Namespace: "apps", Revision: 3,
 					Updated: deployed.Format(time.RFC3339Nano), Status: "deployed",
 					Chart: "nginx-1.2.3", AppVersion: "2.0",
 				}
-				if len(got.Releases) != 1 || got.Releases[0] != want {
+				if len(got.Releases) != 1 || !reflect.DeepEqual(got.Releases[0], want) {
 					t.Fatalf("got releases %#v, want one %#v", got.Releases, want)
 				}
 			case nativeResultRepositories:
 				if len(got.Repositories) != 1 || got.Repositories[0].Name != "stable" || got.Repositories[0].URL != "https://example.test" {
 					t.Fatalf("unexpected repositories result: %#v", got.Repositories)
+				}
+			case nativeResultChartSearchResults:
+				if len(got.ChartSearchResults) != 1 || got.ChartSearchResults[0] != (nativeChartSearchResult{
+					Reference: "stable/nginx", ChartName: "nginx", Version: "1.2.3",
+					AppVersion: "2.0", Description: "Nginx chart",
+				}) {
+					t.Fatalf("unexpected chart search results: %#v", got.ChartSearchResults)
 				}
 			case nativeResultJSON:
 				var decoded map[string]any
@@ -180,6 +231,11 @@ func TestResponseFromResultPreservesEmptyTypedArrays(t *testing.T) {
 	repositories := responseFromResult("repoList", []map[string]string{}, "")
 	if repositories.ResultKind != nativeResultRepositories || repositories.Repositories == nil || len(repositories.Repositories) != 0 {
 		t.Fatalf("expected an empty allocated repository array, got %#v", repositories)
+	}
+
+	searchResults := responseFromResult("chartSearch", []map[string]any{}, "")
+	if searchResults.ResultKind != nativeResultChartSearchResults || searchResults.ChartSearchResults == nil || len(searchResults.ChartSearchResults) != 0 {
+		t.Fatalf("expected an empty allocated chart search array, got %#v", searchResults)
 	}
 }
 

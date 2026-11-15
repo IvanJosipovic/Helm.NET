@@ -59,6 +59,15 @@ func requestFromC(input *C.HelmRequest) (nativeRequest, error) {
 	if err != nil {
 		return nativeRequest{}, err
 	}
+	postRendererArgs, err := stringsFromC(input.options.post_renderer_args.items, input.options.post_renderer_args.length)
+	if err != nil {
+		return nativeRequest{}, err
+	}
+	apiVersions, err := stringsFromC(input.options.api_versions.items, input.options.api_versions.length)
+	if err != nil {
+		return nativeRequest{}, err
+	}
+	flags := uint64(input.options.flags)
 	return nativeRequest{
 		ABIVersion: uint32(input.abi_version), Operation: stringFromC(input.operation),
 		ReleaseName: stringFromC(input.release_name), Chart: stringFromC(input.chart),
@@ -72,7 +81,52 @@ func requestFromC(input *C.HelmRequest) (nativeRequest, error) {
 		RegistryConfig: stringFromC(input.registry_config), HelmDriver: stringFromC(input.helm_driver),
 		RepositoryName: stringFromC(input.repository_name), RepositoryURL: stringFromC(input.repository_url),
 		RepositoryUsername: stringFromC(input.repository_username), RepositoryPassword: stringFromC(input.repository_password),
+		Version: stringFromC(input.options.version), SearchTerm: stringFromC(input.options.search_term),
+		AllValues: requestFlag(flags, C.HELM_REQUEST_ALL_VALUES),
+		Versions:  requestFlag(flags, C.HELM_REQUEST_VERSIONS), Devel: requestFlag(flags, C.HELM_REQUEST_DEVEL),
+		Regexp: requestFlag(flags, C.HELM_REQUEST_REGEXP), VersionConstraint: stringFromC(input.options.version_constraint),
+		FailOnNoResult: requestFlag(flags, C.HELM_REQUEST_FAIL_ON_NO_RESULT),
+		Max:            int(input.options.max), Offset: int(input.options.offset), Selector: stringFromC(input.options.selector),
+		Deployed: requestFlag(flags, C.HELM_REQUEST_DEPLOYED), Failed: requestFlag(flags, C.HELM_REQUEST_FAILED),
+		Pending: requestFlag(flags, C.HELM_REQUEST_PENDING), Superseded: requestFlag(flags, C.HELM_REQUEST_SUPERSEDED),
+		Uninstalled: requestFlag(flags, C.HELM_REQUEST_UNINSTALLED), Uninstalling: requestFlag(flags, C.HELM_REQUEST_UNINSTALLING),
+		Date: requestFlag(flags, C.HELM_REQUEST_DATE), ResetValues: requestFlag(flags, C.HELM_REQUEST_RESET_VALUES),
+		ReuseValues:          requestFlag(flags, C.HELM_REQUEST_REUSE_VALUES),
+		ResetThenReuseValues: requestFlag(flags, C.HELM_REQUEST_RESET_THEN_REUSE_VALUES),
+		DryRun:               stringFromC(input.options.dry_run), HideSecret: requestFlag(flags, C.HELM_REQUEST_HIDE_SECRET),
+		DisableHooks: requestFlag(flags, C.HELM_REQUEST_DISABLE_HOOKS),
+		PostRenderer: stringFromC(input.options.post_renderer), PostRendererArgs: postRendererArgs,
+		WaitForJobs:              requestFlag(flags, C.HELM_REQUEST_WAIT_FOR_JOBS),
+		RollbackOnFailure:        requestFlag(flags, C.HELM_REQUEST_ROLLBACK_ON_FAILURE),
+		Reverse:                  requestFlag(flags, C.HELM_REQUEST_REVERSE),
+		DependencyUpdate:         requestFlag(flags, C.HELM_REQUEST_DEPENDENCY_UPDATE),
+		SkipCrds:                 requestFlag(flags, C.HELM_REQUEST_SKIP_CRDS),
+		SkipSchemaValidation:     requestFlag(flags, C.HELM_REQUEST_SKIP_SCHEMA_VALIDATION),
+		DisableOpenApiValidation: requestFlag(flags, C.HELM_REQUEST_DISABLE_OPENAPI_VALIDATION),
+		Description:              stringFromC(input.options.description),
+		ForceUpdate:              requestFlag(flags, C.HELM_REQUEST_FORCE_UPDATE),
+		WaitStrategy:             stringFromC(input.options.wait_strategy), Replace: requestFlag(flags, C.HELM_REQUEST_REPLACE),
+		ForceReplace:    requestFlag(flags, C.HELM_REQUEST_FORCE_REPLACE),
+		ForceConflicts:  requestFlag(flags, C.HELM_REQUEST_FORCE_CONFLICTS),
+		TakeOwnership:   requestFlag(flags, C.HELM_REQUEST_TAKE_OWNERSHIP),
+		CleanupOnFail:   requestFlag(flags, C.HELM_REQUEST_CLEANUP_ON_FAIL),
+		HistoryMax:      int(input.options.history_max),
+		DryRunUninstall: requestFlag(flags, C.HELM_REQUEST_DRY_RUN_UNINSTALL),
+		IgnoreNotFound:  requestFlag(flags, C.HELM_REQUEST_IGNORE_NOT_FOUND),
+		KeepHistory:     requestFlag(flags, C.HELM_REQUEST_KEEP_HISTORY), Cascade: stringFromC(input.options.cascade),
+		Repo: stringFromC(input.options.repo), CaFile: stringFromC(input.options.ca_file),
+		CertFile: stringFromC(input.options.cert_file), KeyFile: stringFromC(input.options.key_file),
+		InsecureSkipTlsVerify: requestFlag(flags, C.HELM_REQUEST_INSECURE_SKIP_TLS_VERIFY),
+		PassCredentials:       requestFlag(flags, C.HELM_REQUEST_PASS_CREDENTIALS),
+		PlainHttp:             requestFlag(flags, C.HELM_REQUEST_PLAIN_HTTP), ApiVersions: apiVersions,
+		KubeVersion: stringFromC(input.options.kube_version),
+		IncludeCrds: requestFlag(flags, C.HELM_REQUEST_INCLUDE_CRDS),
+		SkipTests:   requestFlag(flags, C.HELM_REQUEST_SKIP_TESTS), IsUpgrade: requestFlag(flags, C.HELM_REQUEST_IS_UPGRADE),
 	}, nil
+}
+
+func requestFlag(flags uint64, flag C.uint64_t) bool {
+	return flags&uint64(flag) != 0
 }
 
 func stringFromC(value *C.char) string {
@@ -141,6 +195,19 @@ func writeResponse(target *C.HelmResponse, source nativeResponse) *C.HelmRespons
 				items[index].url = C.CString(repository.URL)
 			}
 		}
+	case nativeResultChartSearchResults:
+		if len(source.ChartSearchResults) > 0 {
+			target.chart_search_results.items = (*C.HelmChartSearchResult)(C.calloc(C.size_t(len(source.ChartSearchResults)), C.size_t(C.sizeof_HelmChartSearchResult)))
+			target.chart_search_results.length = C.size_t(len(source.ChartSearchResults))
+			items := unsafe.Slice(target.chart_search_results.items, len(source.ChartSearchResults))
+			for index, result := range source.ChartSearchResults {
+				items[index].reference = C.CString(result.Reference)
+				items[index].chart_name = C.CString(result.ChartName)
+				items[index].version = C.CString(result.Version)
+				items[index].app_version = C.CString(result.AppVersion)
+				items[index].description = C.CString(result.Description)
+			}
+		}
 	}
 	return target
 }
@@ -156,11 +223,74 @@ func allocateRelease(release nativeRelease) *C.HelmRelease {
 func writeRelease(target *C.HelmRelease, source nativeRelease) {
 	target.name = C.CString(source.Name)
 	target.namespace_name = C.CString(source.Namespace)
-	target.revision = C.CString(source.Revision)
+	target.revision = C.int32_t(source.Revision)
 	target.updated = C.CString(source.Updated)
 	target.status = C.CString(source.Status)
 	target.chart = C.CString(source.Chart)
 	target.app_version = C.CString(source.AppVersion)
+	target.chart_name = C.CString(source.ChartName)
+	target.chart_version = C.CString(source.ChartVersion)
+	target.description = C.CString(source.Description)
+	target.notes = C.CString(source.Notes)
+	target.resources_json = C.CString(source.ResourcesJSON)
+	if len(source.Hooks) == 0 {
+		return
+	}
+	target.hooks.items = (*C.HelmReleaseHook)(C.calloc(C.size_t(len(source.Hooks)), C.size_t(C.sizeof_HelmReleaseHook)))
+	target.hooks.length = C.size_t(len(source.Hooks))
+	items := unsafe.Slice(target.hooks.items, len(source.Hooks))
+	for index, hook := range source.Hooks {
+		writeHook(&items[index], hook)
+	}
+}
+
+func writeHook(target *C.HelmReleaseHook, source nativeHook) {
+	target.name = C.CString(source.Name)
+	target.kind = C.CString(source.Kind)
+	target.path = C.CString(source.Path)
+	target.manifest = C.CString(source.Manifest)
+	target.events = allocateStringArray(source.Events)
+	target.last_run.started_at = C.CString(source.StartedAt)
+	target.last_run.completed_at = C.CString(source.CompletedAt)
+	target.last_run.phase = C.CString(source.Phase)
+	target.weight = C.int32_t(source.Weight)
+	target.delete_policies = allocateStringArray(source.DeletePolicies)
+}
+
+func allocateStringArray(values []string) C.HelmStringArrayOwned {
+	array := C.HelmStringArrayOwned{length: C.size_t(len(values))}
+	if len(values) == 0 {
+		return array
+	}
+	array.items = (**C.char)(C.calloc(C.size_t(len(values)), C.size_t(unsafe.Sizeof(uintptr(0)))))
+	items := unsafe.Slice(array.items, len(values))
+	for index, value := range values {
+		items[index] = C.CString(value)
+	}
+	return array
+}
+
+func freeStringArray(array C.HelmStringArrayOwned) {
+	if array.items == nil {
+		return
+	}
+	items := unsafe.Slice(array.items, int(array.length))
+	for _, value := range items {
+		C.free(unsafe.Pointer(value))
+	}
+	C.free(unsafe.Pointer(array.items))
+}
+
+func freeHook(hook *C.HelmReleaseHook) {
+	C.free(unsafe.Pointer(hook.name))
+	C.free(unsafe.Pointer(hook.kind))
+	C.free(unsafe.Pointer(hook.path))
+	C.free(unsafe.Pointer(hook.manifest))
+	freeStringArray(hook.events)
+	C.free(unsafe.Pointer(hook.last_run.started_at))
+	C.free(unsafe.Pointer(hook.last_run.completed_at))
+	C.free(unsafe.Pointer(hook.last_run.phase))
+	freeStringArray(hook.delete_policies)
 }
 
 func freeRelease(release *C.HelmRelease) {
@@ -169,11 +299,22 @@ func freeRelease(release *C.HelmRelease) {
 	}
 	C.free(unsafe.Pointer(release.name))
 	C.free(unsafe.Pointer(release.namespace_name))
-	C.free(unsafe.Pointer(release.revision))
 	C.free(unsafe.Pointer(release.updated))
 	C.free(unsafe.Pointer(release.status))
 	C.free(unsafe.Pointer(release.chart))
 	C.free(unsafe.Pointer(release.app_version))
+	C.free(unsafe.Pointer(release.chart_name))
+	C.free(unsafe.Pointer(release.chart_version))
+	C.free(unsafe.Pointer(release.description))
+	C.free(unsafe.Pointer(release.notes))
+	C.free(unsafe.Pointer(release.resources_json))
+	if release.hooks.items != nil {
+		items := unsafe.Slice(release.hooks.items, int(release.hooks.length))
+		for index := range items {
+			freeHook(&items[index])
+		}
+		C.free(unsafe.Pointer(release.hooks.items))
+	}
 }
 
 func freeResponseContents(response *C.HelmResponse) {
@@ -200,6 +341,17 @@ func freeResponseContents(response *C.HelmResponse) {
 		}
 		C.free(unsafe.Pointer(response.repositories.items))
 	}
+	if response.chart_search_results.items != nil {
+		items := unsafe.Slice(response.chart_search_results.items, int(response.chart_search_results.length))
+		for index := range items {
+			C.free(unsafe.Pointer(items[index].reference))
+			C.free(unsafe.Pointer(items[index].chart_name))
+			C.free(unsafe.Pointer(items[index].version))
+			C.free(unsafe.Pointer(items[index].app_version))
+			C.free(unsafe.Pointer(items[index].description))
+		}
+		C.free(unsafe.Pointer(response.chart_search_results.items))
+	}
 	response.abi_version = 0
 	response.result_kind = 0
 	response.error = nil
@@ -210,4 +362,6 @@ func freeResponseContents(response *C.HelmResponse) {
 	response.releases.length = 0
 	response.repositories.items = nil
 	response.repositories.length = 0
+	response.chart_search_results.items = nil
+	response.chart_search_results.length = 0
 }

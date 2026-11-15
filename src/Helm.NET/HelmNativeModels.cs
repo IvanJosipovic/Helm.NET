@@ -91,7 +91,8 @@ internal sealed record NativeHelmResponse(
     JsonElement? Values = null,
     NativeHelmRelease? Release = null,
     NativeHelmRelease[]? Releases = null,
-    HelmRepository[]? Repositories = null);
+    HelmRepository[]? Repositories = null,
+    HelmChartSearchResult[]? ChartSearchResults = null);
 
 internal sealed class NativeHelmRelease
 {
@@ -102,10 +103,41 @@ internal sealed class NativeHelmRelease
     public string Status { get; init; } = string.Empty;
     public string Chart { get; init; } = string.Empty;
     public string AppVersion { get; init; } = string.Empty;
+    public string ChartName { get; init; } = string.Empty;
+    public string ChartVersion { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public string Notes { get; init; } = string.Empty;
+    public JsonElement? Resources { get; init; }
+    public NativeHelmHook[] Hooks { get; init; } = [];
+
+    public HelmRelease ToHelmRelease() => new(Name, Namespace, Revision, Updated, Status, Chart, AppVersion, ChartName, ChartVersion)
+    {
+        Description = Description,
+        Notes = Notes,
+        Resources = Resources,
+        Hooks = Hooks.Select(static hook => hook.ToHelmReleaseHook()).ToArray()
+    };
+}
+
+internal sealed class NativeHelmHook
+{
+    public string Name { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Path { get; init; } = string.Empty;
+    public string Manifest { get; init; } = string.Empty;
+    public string[] Events { get; init; } = [];
+    public NativeHelmHookExecution LastRun { get; init; } = new();
+    public int Weight { get; init; }
+    public string[] DeletePolicies { get; init; } = [];
+
+    public HelmReleaseHook ToHelmReleaseHook() => new(
+        Name, Kind, Path, Manifest, Events, LastRun.StartedAt, LastRun.CompletedAt,
+        LastRun.Phase, Weight, DeletePolicies);
+}
 
 internal sealed class NativeHelmHookExecution
 {
-    [JsonPropertyName("started_at")] public DateTimeOffset? StartedAt { get; init; }
-    [JsonPropertyName("completed_at")] public DateTimeOffset? CompletedAt { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public DateTimeOffset? CompletedAt { get; init; }
     public string Phase { get; init; } = string.Empty;
 }
