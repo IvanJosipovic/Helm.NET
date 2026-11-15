@@ -16,7 +16,7 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(releases: [NativeRelease()]), out var request);
 
-        var releases = client.ListReleases();
+        var releases = client.List();
 
         request().Operation.ShouldBe("list");
         request().Namespace.ShouldBe("default");
@@ -30,7 +30,7 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(), out var request);
 
-        client.ListReleases(allNamespaces: true, filter: "^web$");
+        client.List(allNamespaces: true, filter: "^web$");
 
         request().AllNamespaces.ShouldBeTrue();
         request().Filter.ShouldBe("^web$");
@@ -120,6 +120,35 @@ public sealed class HelmClientTests
         request().TimeoutMilliseconds.ShouldBe(0);
         request().ValuesFiles.ShouldBeNull();
         request().Values.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ListAndHistoryMapHookExecutionAndDeletePolicies(bool history)
+    {
+        const string response = """
+            {"data":[{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"},"delete_policies":["before-hook-creation"]}]}]}
+            """;
+        var client = CreateClient(response, out _);
+
+        var release = history ? client.History("web").ShouldHaveSingleItem() : client.List().ShouldHaveSingleItem();
+
+        var hook = release.Hooks.ShouldHaveSingleItem();
+        hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
+        hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
+        hook.Phase.ShouldBe("Succeeded");
+        hook.DeletePolicies.ShouldHaveSingleItem().ShouldBe("before-hook-creation");
+    }
+
+    [Fact]
+    public void HistorySerializesMax()
+    {
+        var client = CreateClient("{\"data\":[]}", out var request);
+
+        client.History("web", max: 5);
+
+        request().GetProperty("max").GetInt32().ShouldBe(5);
     }
 
     [Fact]
@@ -234,7 +263,7 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(), out var request);
 
-        client.AddRepository("private", "https://example.test", "user", "secret");
+        client.RepoAdd("private", "https://example.test", "user", "secret");
 
         var captured = request();
         captured.Operation.ShouldBe("repoAdd");
@@ -260,7 +289,17 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(), out var request);
 
-        client.RemoveRepository("stable");
+        client.RepoAdd("stable", "https://example.test", forceUpdate: true);
+
+        request().GetProperty("forceUpdate").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void RepoRemoveSendsName()
+    {
+        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+
+        client.RepoRemove("stable");
 
         request().RepositoryName.ShouldBe("stable");
         request().Operation.ShouldBe("repoRemove");
@@ -271,7 +310,7 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(), out var request);
 
-        client.UpdateRepositories();
+        client.RepoUpdate();
 
         request().Operation.ShouldBe("repoUpdate");
     }
@@ -281,13 +320,13 @@ public sealed class HelmClientTests
     {
         var options = new HelmClientOptions
         {
-            Kubeconfig = "kube.yaml", KubeContext = "dev", Namespace = "apps",
+            Kubeconfig = "kube.yaml", KubeContext = "dev", DefaultNamespace = "apps",
             RepositoryConfig = "repositories.yaml", RepositoryCache = "cache",
             RegistryConfig = "registry.json", HelmDriver = "configmap"
         };
         var client = CreateClient(Response(), out var request, options);
 
-        client.ListReleases();
+        client.List();
 
         var captured = request();
         captured.Kubeconfig.ShouldBe("kube.yaml");
@@ -312,13 +351,14 @@ public sealed class HelmClientTests
     {
         var client = CreateClient(Response(), out _);
 
-        client.ListReleases().ShouldBeEmpty();
+        client.List().ShouldBeEmpty();
         client.History("web").ShouldBeEmpty();
         client.ListRepositories().ShouldBeEmpty();
         var values = client.GetValues("web");
         values.ValueKind.ShouldBe(JsonValueKind.Object);
         values.EnumerateObject().Any().ShouldBeFalse();
         client.Template("web", "chart").ShouldBeEmpty();
+        client.GetManifest("web").ShouldBeEmpty();
     }
 
     [Fact]
@@ -394,4 +434,3 @@ public sealed class HelmClientTests
     private static HelmRelease Release(string revision = "3") => new(
         "web", "apps", revision, "2026-01-02T03:04:05Z", "deployed", "nginx-1.2.3", "2.0");
 }
-

@@ -99,7 +99,7 @@ public sealed class HelmClient : IHelmClient
         {
             Kubeconfig = _options.Kubeconfig,
             KubeContext = _options.KubeContext,
-            Namespace = _options.Namespace,
+            Namespace = request.Namespace ?? _options.DefaultNamespace,
             RepositoryConfig = _options.RepositoryConfig,
             RepositoryCache = _options.RepositoryCache,
             RegistryConfig = _options.RegistryConfig,
