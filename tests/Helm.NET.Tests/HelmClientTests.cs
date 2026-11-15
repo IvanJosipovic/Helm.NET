@@ -1,421 +1,329 @@
-using System.Text;
 using System.Text.Json;
-using System.Runtime.InteropServices;
+
 namespace Helm.NET.Tests;
 
 public sealed class HelmClientTests
 {
-    private const string ReleaseJson = """
-        {"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","app_version":"2.0"}
-        """;
-
     [Fact]
-    public void ConstructorUsesDefaultOptions()
+    public void ExistingInterfaceImplementersReceiveDefaultsForNewOperations()
     {
-        var client = new HelmClient();
-        client.ShouldNotBeNull();
+        var legacy = new LegacyHelmClient();
+        IHelmClient client = legacy;
+
+        client.ListReleases().ShouldBe([Release()]);
+        client.ListReleases(allNamespaces: true, filter: "^legacy$").ShouldBe([Release()]);
+        legacy.LastAllNamespaces.ShouldBeTrue();
+        legacy.LastFilter.ShouldBe("^legacy$");
     }
 
     [Fact]
-    public void ListUsesDefaultsAndMapsRecords()
+    public void RepositoryAliasesForwardToExistingInterfaceOperations()
     {
-        var client = CreateClient("{\"data\":[" + ReleaseJson + "]}", out var request);
+        var legacy = new LegacyRepositoryHelmClient();
+        IHelmClient client = legacy;
+
+        client.ListRepositories().ShouldBe([new HelmRepository("stable", "https://example.test")]);
+        client.AddRepository("private", "https://private.test", "user", "secret");
+        legacy.LastOperation.ShouldBe("repoAdd");
+        legacy.LastName.ShouldBe("private");
+        legacy.LastForceUpdate.ShouldBeTrue();
+        legacy.LastUsername.ShouldBe("user");
+        legacy.LastPassword.ShouldBe("secret");
+
+        client.RemoveRepository("private");
+        legacy.LastOperation.ShouldBe("repoRemove");
+        legacy.LastName.ShouldBe("private");
+
+        client.UpdateRepositories();
+        legacy.LastOperation.ShouldBe("repoUpdate");
+    }
+
+    [Fact]
+    public void ReleaseConvenienceOverloadsForwardDefaultsToExtendedInterfaceOperations()
+    {
+        var legacy = new LegacyReleaseHelmClient();
+        IHelmClient client = legacy;
+
+        client.Status("web").ShouldBe(Release());
+        legacy.LastOperation.ShouldBe("status");
+        legacy.LastReleaseName.ShouldBe("web");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(0);
+
+        client.History("web").ShouldBe([Release()]);
+        legacy.LastOperation.ShouldBe("history");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(256);
+
+        client.GetValues("web").GetProperty("enabled").GetBoolean().ShouldBeTrue();
+        legacy.LastOperation.ShouldBe("values");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(0);
+        legacy.LastAllValues.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ListReleasesUsesDefaultsAndMapsTypedRecords()
+    {
+        var client = CreateClient(Response(releases: [NativeRelease()]), out var request);
 
         var releases = client.List();
 
-        request().GetProperty("operation").GetString().ShouldBe("list");
-        request().GetProperty("namespace").GetString().ShouldBe("default");
-        var release = releases.ShouldHaveSingleItem();
-        release.Name.ShouldBe("web");
-        release.Namespace.ShouldBe("apps");
-        release.Revision.ShouldBe(3);
-        release.Updated.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
-        release.Status.ShouldBe("deployed");
-        release.Chart.ShouldBe("nginx-1.2.3");
-        release.AppVersion.ShouldBe("2.0");
+        request().Operation.ShouldBe("list");
+        request().Namespace.ShouldBe("default");
+        request().AllNamespaces.ShouldBeFalse();
+        request().Filter.ShouldBeNull();
+        releases.ShouldHaveSingleItem().ShouldBe(Release());
     }
 
     [Fact]
-    public void ListCanSelectAllNamespacesAndFilter()
+    public void ListReleasesForwardsNamespaceAndFilterOptions()
     {
-        var client = CreateClient("{\"data\":[]}", out var request);
+        var client = CreateClient(Response(), out var request);
 
         client.List(allNamespaces: true, filter: "^web$");
 
-        var json = request();
-        json.GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
-        json.GetProperty("filter").GetString().ShouldBe("^web$");
+        request().AllNamespaces.ShouldBeTrue();
+        request().Filter.ShouldBe("^web$");
     }
 
     [Fact]
-    public void ListAllowsNamespaceOverrideWhileAllNamespacesIsExplicit()
+    public void ListReleasesUsesListOperationAndMapsTypedRecords()
     {
-        var client = CreateClient("{\"data\":[]}", out var request,
-            new HelmClientOptions { DefaultNamespace = "default" });
+        var client = CreateClient(Response(releases: [NativeRelease()]), out var request);
 
-        client.List("apps");
-        request().GetProperty("namespace").GetString().ShouldBe("apps");
+        client.ListReleases().ShouldBe([Release()]);
 
-        client.List(allNamespaces: true, namespaceName: "apps");
-        var json = request();
-        json.GetProperty("allNamespaces").GetBoolean().ShouldBeTrue();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
+        request().Operation.ShouldBe("list");
+        request().Namespace.ShouldBe("default");
     }
 
     [Fact]
-    public void ListSerializesPaginationSelectorStatusesAndSort()
+    public void ListReleasesWithOptionsForwardsNamespaceSearchOptions()
     {
-        var client = CreateClient("{\"data\":[]}", out var request);
+        var client = CreateClient(Response(), out var request);
 
-        client.List(allNamespaces: true, filter: "^web$", max: 20, offset: 10, selector: "team=apps", deployed: true, failed: true, dateSort: true, reverse: true);
+        client.ListReleases(allNamespaces: true, filter: "^web$");
 
-        var json = request();
-        json.GetProperty("max").GetInt32().ShouldBe(20);
-        json.GetProperty("offset").GetInt32().ShouldBe(10);
-        json.GetProperty("selector").GetString().ShouldBe("team=apps");
-        json.GetProperty("deployed").GetBoolean().ShouldBeTrue();
-        json.GetProperty("failed").GetBoolean().ShouldBeTrue();
-        json.GetProperty("date").GetBoolean().ShouldBeTrue();
-        json.GetProperty("reverse").GetBoolean().ShouldBeTrue();
+        request().AllNamespaces.ShouldBeTrue();
+        request().Filter.ShouldBe("^web$");
     }
 
     [Fact]
-    public void TemplateSerializesValuesAndReturnsManifest()
+    public void TemplateForwardsValuesFilesAndDynamicJsonValuesAndReturnsText()
     {
-        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
-        var values = ParseJsonElement("""{"replicas":2,"image":{"tag":"1.2.3"}}""");
+        using var valuesDocument = JsonDocument.Parse("""{"replicas":2,"configuration":{"nested":{"enabled":true,"items":[2,3]}}}""");
+        var client = CreateClient(Response(text: "rendered yaml"), out var request);
 
-        client.Template("web", "./chart", values: ["prod.yaml"], setValues: values).ShouldBe("rendered yaml");
+        client.Template("web", "./chart", ["prod.yaml"], valuesDocument.RootElement).ShouldBe("rendered yaml");
 
-        var json = request();
-        json.GetProperty("operation").GetString().ShouldBe("template");
-        json.GetProperty("releaseName").GetString().ShouldBe("web");
-        json.GetProperty("chart").GetString().ShouldBe("./chart");
-        json.GetProperty("valuesFiles")[0].GetString().ShouldBe("prod.yaml");
-        json.GetProperty("values").GetProperty("replicas").GetInt32().ShouldBe(2);
-        json.GetProperty("values").GetProperty("image").GetProperty("tag").GetString().ShouldBe("1.2.3");
+        var captured = request();
+        captured.Operation.ShouldBe("template");
+        captured.ReleaseName.ShouldBe("web");
+        captured.Chart.ShouldBe("./chart");
+        captured.ValuesFiles.ShouldBe(["prod.yaml"]);
+        var values = captured.Values!.Value;
+        values.GetProperty("replicas").GetInt32().ShouldBe(2);
+        var configuration = values.GetProperty("configuration");
+        configuration.GetProperty("nested").GetProperty("enabled").GetBoolean().ShouldBeTrue();
+        configuration.GetProperty("nested").GetProperty("items")[1].GetInt32().ShouldBe(3);
     }
 
     [Fact]
-    public void SetValuesRequiresJsonObject()
+    public void TemplateDefaultsToNoValuesFilesOrValues()
     {
-        var client = CreateClient("{\"data\":\"rendered yaml\"}", out _);
-        var values = ParseJsonElement("3");
+        var client = CreateClient(Response(text: "manifest"), out var request);
 
-        Should.Throw<ArgumentException>(() => client.Template("web", "chart", setValues: values))
-            .ParamName.ShouldBe("setValues");
+        client.Template("web", "chart").ShouldBe("manifest");
+
+        request().ValuesFiles.ShouldBeNull();
+        request().Values.ShouldBeNull();
     }
 
     [Fact]
-    public void TemplateSerializesRequestedVersion()
+    public void TemplateInstallAndUpgradeRejectNonObjectSetValues()
     {
-        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
+        using var valuesDocument = JsonDocument.Parse("[1,2]");
+        var client = CreateClient(Response(release: NativeRelease()), out _);
+        var setValues = valuesDocument.RootElement;
 
-        client.Template("web", "stable/nginx", version: "1.2.3");
-
-        request().GetProperty("version").GetString().ShouldBe("1.2.3");
+        Should.Throw<ArgumentException>(() => client.Template("web", "chart", namespaceName: "apps", setValues: setValues));
+        Should.Throw<ArgumentException>(() => client.Install("web", "chart", namespaceName: "apps", setValues: setValues));
+        Should.Throw<ArgumentException>(() => client.Upgrade("web", "chart", namespaceName: "apps", setValues: setValues));
     }
 
     [Fact]
-    public void ShowValuesSerializesChartVersionAndDownloadOptions()
+    public void TemplateWithHelmOptionsForwardsTypedOptions()
     {
-        var client = CreateClient("{\"data\":\"replicas: 2\\n\"}", out var request);
+        using var valuesDocument = JsonDocument.Parse("""{"replicas":2}""");
+        var client = CreateClient(Response(text: "rendered"), out var readRequest);
 
-        client.ShowValues("oci://registry.example/charts/web", version: "1.2.3", username: "user", password: "password", plainHttp: true)
-            .ShouldBe("replicas: 2\n");
+        client.Template(
+            "web", "chart", namespaceName: "apps", values: ["prod.yaml"], setValues: valuesDocument.RootElement,
+            version: "1.2.3", apiVersions: ["v1"], kubeVersion: "1.31", includeCrds: true,
+            skipTests: true, dependencyUpdate: true, isUpgrade: true, dryRun: "server", hideSecret: true,
+            disableHooks: true, postRenderer: "renderer", postRendererArgs: ["--flag"], repo: "https://charts.test",
+            username: "user", password: "password", caFile: "ca.pem", certFile: "client.pem", keyFile: "client.key",
+            insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true).ShouldBe("rendered");
 
-        var json = request();
-        json.GetProperty("operation").GetString().ShouldBe("showValues");
-        json.GetProperty("chart").GetString().ShouldBe("oci://registry.example/charts/web");
-        json.GetProperty("version").GetString().ShouldBe("1.2.3");
-        json.GetProperty("repositoryUsername").GetString().ShouldBe("user");
-        json.GetProperty("repositoryPassword").GetString().ShouldBe("password");
-        json.GetProperty("plainHttp").GetBoolean().ShouldBeTrue();
+        var request = readRequest();
+        request.Namespace.ShouldBe("apps");
+        request.ValuesFiles.ShouldBe(["prod.yaml"]);
+        request.Values!.Value.GetProperty("replicas").GetInt32().ShouldBe(2);
+        request.Version.ShouldBe("1.2.3");
+        request.ApiVersions.ShouldBe(["v1"]);
+        request.KubeVersion.ShouldBe("1.31");
+        request.IncludeCrds.ShouldBeTrue();
+        request.SkipTests.ShouldBeTrue();
+        request.DependencyUpdate.ShouldBeTrue();
+        request.IsUpgrade.ShouldBeTrue();
+        request.DryRun.ShouldBe("server");
+        request.HideSecret.ShouldBeTrue();
+        request.DisableHooks.ShouldBeTrue();
+        request.PostRenderer.ShouldBe("renderer");
+        request.PostRendererArgs.ShouldBe(["--flag"]);
+        request.Repo.ShouldBe("https://charts.test");
+        request.RepositoryUsername.ShouldBe("user");
+        request.RepositoryPassword.ShouldBe("password");
+        request.CaFile.ShouldBe("ca.pem");
+        request.CertFile.ShouldBe("client.pem");
+        request.KeyFile.ShouldBe("client.key");
+        request.InsecureSkipTlsVerify.ShouldBeTrue();
+        request.PassCredentials.ShouldBeTrue();
+        request.PlainHttp.ShouldBeTrue();
     }
 
     [Fact]
-    public void ShowValuesReturnsEmptyWhenNativeResponseHasNoData()
+    public void InstallForwardsOptionsAndMapsRelease()
     {
-        var client = CreateClient("{\"data\":null}", out _);
+        var client = CreateClient(Response(release: NativeRelease()), out var request);
+        using var valuesDocument = JsonDocument.Parse("""{"key":"value"}""");
 
-        client.ShowValues("stable/nginx").ShouldBeEmpty();
+        client.Install("web", "chart", ["values.yaml"], valuesDocument.RootElement, createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(12.5))
+            .ShouldBe(Release());
+
+        var captured = request();
+        captured.Operation.ShouldBe("install");
+        captured.CreateNamespace.ShouldBeTrue();
+        captured.Wait.ShouldBeTrue();
+        captured.TimeoutMilliseconds.ShouldBe(12500);
+        captured.ValuesFiles.ShouldBe(["values.yaml"]);
+        captured.Values!.Value.GetProperty("key").GetString().ShouldBe("value");
     }
 
     [Fact]
-    public void TemplateSerializesRenderingAndChartDownloadOptions()
+    public void InstallWithHelmOptionsForwardsFlagsAndNamespace()
     {
-        var client = CreateClient("{\"data\":\"rendered yaml\"}", out var request);
+        var client = CreateClient(Response(release: NativeRelease()), out var readRequest);
 
-        client.Template("web", "stable/nginx", "apps", apiVersions: ["example.io/v1"], kubeVersion: "1.30.0", includeCrds: true, skipTests: true, dependencyUpdate: true, isUpgrade: true, dryRun: "server", hideSecret: true, disableHooks: true, postRenderer: "renderer", postRendererArgs: ["--strict"], repo: "https://charts.example", username: "user", password: "password", caFile: "ca.pem", certFile: "client.pem", keyFile: "client.key", insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true);
+        client.Install(
+            "web", "chart", namespaceName: "apps", values: ["values.yaml"], createNamespace: true,
+            wait: true, timeout: TimeSpan.FromSeconds(9), version: "2.0.0", dryRun: "client",
+            hideSecret: true, disableHooks: true, postRenderer: "renderer", postRendererArgs: ["--a"],
+            waitForJobs: true, rollbackOnFailure: true, dependencyUpdate: true, skipCrds: true,
+            devel: true, skipSchemaValidation: true, disableOpenApiValidation: true,
+            description: "install test", waitStrategy: "watcher", replace: true, forceReplace: true,
+            forceConflicts: true, takeOwnership: true, repo: "https://charts.test", username: "user",
+            password: "password", caFile: "ca.pem", certFile: "client.pem", keyFile: "client.key",
+            insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true);
 
-        var json = request();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("apiVersions")[0].GetString().ShouldBe("example.io/v1");
-        json.GetProperty("kubeVersion").GetString().ShouldBe("1.30.0");
-        json.GetProperty("includeCrds").GetBoolean().ShouldBeTrue();
-        json.GetProperty("skipTests").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dependencyUpdate").GetBoolean().ShouldBeTrue();
-        json.GetProperty("isUpgrade").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dryRun").GetString().ShouldBe("server");
-        json.GetProperty("disableHooks").GetBoolean().ShouldBeTrue();
-        json.GetProperty("repo").GetString().ShouldBe("https://charts.example");
-        json.GetProperty("repositoryUsername").GetString().ShouldBe("user");
-        json.GetProperty("repositoryPassword").GetString().ShouldBe("password");
-        json.GetProperty("caFile").GetString().ShouldBe("ca.pem");
-        json.GetProperty("certFile").GetString().ShouldBe("client.pem");
-        json.GetProperty("keyFile").GetString().ShouldBe("client.key");
-        json.GetProperty("insecureSkipTlsVerify").GetBoolean().ShouldBeTrue();
-        json.GetProperty("passCredentials").GetBoolean().ShouldBeTrue();
-        json.GetProperty("plainHttp").GetBoolean().ShouldBeTrue();
+        var request = readRequest();
+        request.Namespace.ShouldBe("apps");
+        request.ValuesFiles.ShouldBe(["values.yaml"]);
+        request.CreateNamespace.ShouldBeTrue();
+        request.Wait.ShouldBeTrue();
+        request.TimeoutMilliseconds.ShouldBe(9000);
+        request.Version.ShouldBe("2.0.0");
+        request.DryRun.ShouldBe("client");
+        request.WaitForJobs.ShouldBeTrue();
+        request.RollbackOnFailure.ShouldBeTrue();
+        request.DependencyUpdate.ShouldBeTrue();
+        request.SkipCrds.ShouldBeTrue();
+        request.Devel.ShouldBeTrue();
+        request.SkipSchemaValidation.ShouldBeTrue();
+        request.DisableOpenApiValidation.ShouldBeTrue();
+        request.Description.ShouldBe("install test");
+        request.WaitStrategy.ShouldBe("watcher");
+        request.Replace.ShouldBeTrue();
+        request.ForceReplace.ShouldBeTrue();
+        request.ForceConflicts.ShouldBeTrue();
+        request.TakeOwnership.ShouldBeTrue();
+        request.InsecureSkipTlsVerify.ShouldBeTrue();
+        request.PassCredentials.ShouldBeTrue();
+        request.PlainHttp.ShouldBeTrue();
     }
 
     [Fact]
-    public void GetManifestSerializesRevision()
+    public void UpgradeForwardsInstallIfMissingAndWaitOptions()
     {
-        var client = CreateClient("{\"data\":\"stored yaml\"}", out var request);
+        var client = CreateClient(Response(release: NativeRelease()), out var request);
 
-        client.GetManifest("web", revision: 4).ShouldBe("stored yaml");
+        client.Upgrade("web", "chart", installIfMissing: true, createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(7))
+            .ShouldBe(Release());
 
-        request().GetProperty("operation").GetString().ShouldBe("getManifest");
-        request().GetProperty("revision").GetInt32().ShouldBe(4);
+        var captured = request();
+        captured.Operation.ShouldBe("upgrade");
+        captured.InstallIfMissing.ShouldBeTrue();
+        captured.CreateNamespace.ShouldBeTrue();
+        captured.Wait.ShouldBeTrue();
+        captured.TimeoutMilliseconds.ShouldBe(7000);
     }
 
     [Fact]
-    public void ReleaseLookupMethodsAllowNamespaceOverrides()
+    public void UpgradeWithHelmOptionsForwardsValueAndFailureFlags()
     {
-        var manifestClient = CreateClient("{\"data\":\"manifest\"}", out var manifestRequest,
-            new HelmClientOptions { DefaultNamespace = "default" });
-        manifestClient.GetManifest("web", "apps");
-        manifestRequest().GetProperty("namespace").GetString().ShouldBe("apps");
+        using var valuesDocument = JsonDocument.Parse("{\"replicas\":3}");
+        var client = CreateClient(Response(release: NativeRelease()), out var readRequest);
 
-        var statusClient = CreateClient("{\"data\":" + ReleaseJson + "}", out var statusRequest);
-        statusClient.Status("web", "apps");
-        statusRequest().GetProperty("namespace").GetString().ShouldBe("apps");
+        client.Upgrade(
+            "web", "chart", namespaceName: "apps", values: ["prod.yaml"], setValues: valuesDocument.RootElement,
+            install: true, wait: true, timeout: TimeSpan.FromSeconds(11), version: "2.1.0",
+            resetValues: true, reuseValues: true, resetThenReuseValues: true, dependencyUpdate: true,
+            cleanupOnFail: true, forceReplace: true, forceConflicts: true, takeOwnership: true,
+            repo: "https://charts.test", insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true)
+            .ShouldBe(Release());
 
-        var historyClient = CreateClient("{\"data\":[]}", out var historyRequest);
-        historyClient.History("web", "apps");
-        historyRequest().GetProperty("namespace").GetString().ShouldBe("apps");
-
-        var valuesClient = CreateClient("{\"data\":{}}", out var valuesRequest);
-        valuesClient.GetValues("web", "apps");
-        valuesRequest().GetProperty("namespace").GetString().ShouldBe("apps");
+        var request = readRequest();
+        request.Namespace.ShouldBe("apps");
+        request.ValuesFiles.ShouldBe(["prod.yaml"]);
+        request.Values!.Value.GetProperty("replicas").GetInt32().ShouldBe(3);
+        request.InstallIfMissing.ShouldBeTrue();
+        request.Wait.ShouldBeTrue();
+        request.TimeoutMilliseconds.ShouldBe(11000);
+        request.Version.ShouldBe("2.1.0");
+        request.ResetValues.ShouldBeTrue();
+        request.ReuseValues.ShouldBeTrue();
+        request.ResetThenReuseValues.ShouldBeTrue();
+        request.DependencyUpdate.ShouldBeTrue();
+        request.CleanupOnFail.ShouldBeTrue();
+        request.ForceReplace.ShouldBeTrue();
+        request.ForceConflicts.ShouldBeTrue();
+        request.TakeOwnership.ShouldBeTrue();
+        request.Repo.ShouldBe("https://charts.test");
+        request.InsecureSkipTlsVerify.ShouldBeTrue();
+        request.PassCredentials.ShouldBeTrue();
+        request.PlainHttp.ShouldBeTrue();
     }
 
     [Fact]
-    public void InstallSerializesAllOptionsAndMapsRelease()
+    public void InstallAndUpgradeUseFalseAndZeroOptionDefaults()
     {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-        var release = client.Install("web", "chart", "apps", values: ["values.yaml"], setValues: ParseJsonElement("""{"key":"value"}"""), createNamespace: true, wait: true, timeout: TimeSpan.FromSeconds(12.5));
+        var client = CreateClient(Response(release: NativeRelease()), out var request);
 
-        release.Name.ShouldBe("web");
-        release.AppVersion.ShouldBe("2.0");
-        var json = request();
-        json.GetProperty("operation").GetString().ShouldBe("install");
-        json.GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("wait").GetBoolean().ShouldBeTrue();
-        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(12500);
-    }
+        client.Install("web", "chart");
+        request().CreateNamespace.ShouldBeFalse();
+        request().Wait.ShouldBeFalse();
+        request().TimeoutMilliseconds.ShouldBe(0);
+        request().ValuesFiles.ShouldBeNull();
+        request().Values.ShouldBeNull();
 
-    [Fact]
-    public void InstallSerializesCliDryRunHooksRendererAndRollbackOptions()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Install("web", "chart", dryRun: "server", hideSecret: true, disableHooks: true, postRenderer: "renderer", postRendererArgs: ["--mode", "strict"], waitForJobs: true, rollbackOnFailure: true, dependencyUpdate: true, skipCrds: true, devel: true, skipSchemaValidation: true, disableOpenApiValidation: true, description: "test install");
-
-        var json = request();
-        json.GetProperty("dryRun").GetString().ShouldBe("server");
-        json.GetProperty("hideSecret").GetBoolean().ShouldBeTrue();
-        json.GetProperty("disableHooks").GetBoolean().ShouldBeTrue();
-        json.GetProperty("postRenderer").GetString().ShouldBe("renderer");
-        json.GetProperty("postRendererArgs")[1].GetString().ShouldBe("strict");
-        json.GetProperty("waitForJobs").GetBoolean().ShouldBeTrue();
-        json.GetProperty("rollbackOnFailure").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dependencyUpdate").GetBoolean().ShouldBeTrue();
-        json.GetProperty("skipCrds").GetBoolean().ShouldBeTrue();
-        json.GetProperty("devel").GetBoolean().ShouldBeTrue();
-        json.GetProperty("skipSchemaValidation").GetBoolean().ShouldBeTrue();
-        json.GetProperty("disableOpenApiValidation").GetBoolean().ShouldBeTrue();
-        json.GetProperty("description").GetString().ShouldBe("test install");
-    }
-
-    [Fact]
-    public void InstallSerializesNamespaceWaitOwnershipAndChartDownloadOptions()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Install("web", "chart", namespaceName: "apps", waitStrategy: "legacy", replace: true, forceReplace: true, forceConflicts: true, takeOwnership: true, repo: "https://charts.example", username: "user", password: "password", caFile: "ca.pem", certFile: "client.pem", keyFile: "client.key", insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true);
-
-        var json = request();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("waitStrategy").GetString().ShouldBe("legacy");
-        json.GetProperty("replace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("forceReplace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("forceConflicts").GetBoolean().ShouldBeTrue();
-        json.GetProperty("takeOwnership").GetBoolean().ShouldBeTrue();
-        json.GetProperty("repo").GetString().ShouldBe("https://charts.example");
-        json.GetProperty("passCredentials").GetBoolean().ShouldBeTrue();
-        json.GetProperty("plainHttp").GetBoolean().ShouldBeTrue();
-    }
-
-    [Fact]
-    public void UpgradeSerializesInstallIfMissing()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Upgrade("web", "chart", install: true);
-
-        request().GetProperty("installIfMissing").GetBoolean().ShouldBeTrue();
-        request().GetProperty("operation").GetString().ShouldBe("upgrade");
-    }
-
-    [Fact]
-    public void UpgradeSerializesDryRunValueStrategyAndPostRendererOptions()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Upgrade("web", "chart", dryRun: "client", hideSecret: true, disableHooks: true, postRenderer: "renderer", postRendererArgs: ["arg"], waitForJobs: true, rollbackOnFailure: true, resetValues: true, reuseValues: true, resetThenReuseValues: true, skipCrds: true, devel: true, skipSchemaValidation: true, disableOpenApiValidation: true, description: "test upgrade", dependencyUpdate: true);
-
-        var json = request();
-        json.GetProperty("dryRun").GetString().ShouldBe("client");
-        json.GetProperty("resetValues").GetBoolean().ShouldBeTrue();
-        json.GetProperty("reuseValues").GetBoolean().ShouldBeTrue();
-        json.GetProperty("resetThenReuseValues").GetBoolean().ShouldBeTrue();
-        json.GetProperty("rollbackOnFailure").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dependencyUpdate").GetBoolean().ShouldBeTrue();
-        json.GetProperty("postRendererArgs")[0].GetString().ShouldBe("arg");
-    }
-
-    [Fact]
-    public void UpgradeSerializesNamespaceWaitForceOwnershipAndCleanupOptions()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Upgrade("web", "chart", namespaceName: "apps", waitStrategy: "watcher", forceReplace: true, forceConflicts: true, takeOwnership: true, cleanupOnFail: true, repo: "https://charts.example", username: "user", password: "password", caFile: "ca.pem", certFile: "client.pem", keyFile: "client.key", insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true);
-
-        var json = request();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("waitStrategy").GetString().ShouldBe("watcher");
-        json.GetProperty("forceReplace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("forceConflicts").GetBoolean().ShouldBeTrue();
-        json.GetProperty("takeOwnership").GetBoolean().ShouldBeTrue();
-        json.GetProperty("cleanupOnFail").GetBoolean().ShouldBeTrue();
-        json.GetProperty("repo").GetString().ShouldBe("https://charts.example");
-        json.GetProperty("passCredentials").GetBoolean().ShouldBeTrue();
-        json.GetProperty("plainHttp").GetBoolean().ShouldBeTrue();
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1859:Use concrete types when possible for improved performance", Justification = "Exercises the public interface overload.")]
-    public void InstallAndUpgradeSerializeVersionAndPreserveOptions(bool upgrade)
-    {
-        const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":4,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","chartName":"nginx","chartVersion":"1.2.3"}}
-            """;
-        IHelmClient client = CreateClient(response, out var request);
-        var values = ParseJsonElement("""{"key":"value"}""");
-        var timeout = TimeSpan.FromSeconds(12.5);
-
-        var release = upgrade
-            ? client.Upgrade("web", "stable/nginx", values: ["values.yaml"], setValues: values, install: true, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3")
-            : client.Install("web", "stable/nginx", values: ["values.yaml"], setValues: values, createNamespace: true, wait: true, timeout: timeout, version: "1.2.3");
-
-        var json = request();
-        json.GetProperty("operation").GetString().ShouldBe(upgrade ? "upgrade" : "install");
-        json.GetProperty("chart").GetString().ShouldBe("stable/nginx");
-        json.GetProperty("version").GetString().ShouldBe("1.2.3");
-        json.GetProperty("valuesFiles")[0].GetString().ShouldBe("values.yaml");
-        json.GetProperty("values").GetProperty("key").GetString().ShouldBe("value");
-        json.GetProperty("createNamespace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("wait").GetBoolean().ShouldBeTrue();
-        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(12500);
-        json.GetProperty("installIfMissing").GetBoolean().ShouldBe(upgrade);
-        json.GetProperty("revision").GetInt32().ShouldBe(0);
-        release.ChartVersion.ShouldBe("1.2.3");
-        release.Revision.ShouldBe(4);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void InstallAndUpgradePropagateUnavailableVersionError(bool upgrade)
-    {
-        var client = CreateClient("{\"error\":\"chart version 99.0.0 not found\"}", out var request);
-
-        var exception = Should.Throw<HelmActionException>(() =>
-        {
-            if (upgrade)
-                client.Upgrade("web", "stable/nginx", install: true, version: "99.0.0");
-            else
-                client.Install("web", "stable/nginx", version: "99.0.0");
-        });
-
-        exception.Message.ShouldBe("chart version 99.0.0 not found");
-        request().GetProperty("version").GetString().ShouldBe("99.0.0");
-    }
-
-    [Fact]
-    public void StatusMapsRelease()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Status("web").Status.ShouldBe("deployed");
-
-        request().GetProperty("releaseName").GetString().ShouldBe("web");
-        request().GetProperty("operation").GetString().ShouldBe("status");
-    }
-
-    [Fact]
-    public void StatusSerializesRevision()
-    {
-        var client = CreateClient("{\"data\":" + ReleaseJson + "}", out var request);
-
-        client.Status("web", revision: 4);
-
-        request().GetProperty("revision").GetInt32().ShouldBe(4);
-    }
-
-    [Fact]
-    public void StatusMapsReleaseDescriptionNotesResourcesAndTestHooks()
-    {
-        const string response = """
-            {"data":{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","description":"ready","notes":"visit service","resources":{"v1/Pod":[{"metadata":{"name":"web"}}]},"hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"},"delete_policies":["before-hook-creation"]}]}}
-            """;
-        var client = CreateClient(response, out _);
-
-        var release = client.Status("web");
-
-        release.Description.ShouldBe("ready");
-        release.Notes.ShouldBe("visit service");
-        release.Resources!.Value.GetProperty("v1/Pod")[0].GetProperty("metadata").GetProperty("name").GetString().ShouldBe("web");
-        var hook = release.Hooks.ShouldHaveSingleItem();
-        hook.Name.ShouldBe("smoke");
-        hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
-        hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
-        hook.Phase.ShouldBe("Succeeded");
-        hook.DeletePolicies.ShouldHaveSingleItem().ShouldBe("before-hook-creation");
-        release.Hooks[0].Events.ShouldContain("test");
-    }
-
-    [Fact]
-    public void StatusRejectsNativeReleaseWithoutUpdatedTimestamp()
-    {
-        var client = CreateClient("{\"data\":{\"name\":\"web\",\"revision\":3,\"status\":\"deployed\",\"chart\":\"nginx-1.2.3\"}}", out _);
-
-        Should.Throw<JsonException>(() => client.Status("web"));
-    }
-
-    [Fact]
-    public void HistoryMapsReleases()
-    {
-        var client = CreateClient("{\"data\":[" + ReleaseJson + "]}", out var request);
-
-        client.History("web").ShouldHaveSingleItem().Name.ShouldBe("web");
-
-        request().GetProperty("operation").GetString().ShouldBe("history");
-        request().GetProperty("releaseName").GetString().ShouldBe("web");
+        client.Upgrade("web", "chart");
+        request().InstallIfMissing.ShouldBeFalse();
+        request().CreateNamespace.ShouldBeFalse();
+        request().Wait.ShouldBeFalse();
+        request().TimeoutMilliseconds.ShouldBe(0);
+        request().ValuesFiles.ShouldBeNull();
+        request().Values.ShouldBeNull();
     }
 
     [Theory]
@@ -423,14 +331,27 @@ public sealed class HelmClientTests
     [InlineData(true)]
     public void ListAndHistoryMapHookExecutionAndDeletePolicies(bool history)
     {
-        const string response = """
-            {"data":[{"name":"web","namespace":"apps","revision":3,"updated":"2026-01-02T03:04:05Z","status":"deployed","chart":"nginx-1.2.3","hooks":[{"name":"smoke","kind":"Pod","events":["test"],"last_run":{"started_at":"2026-01-02T03:04:05Z","completed_at":"2026-01-02T03:04:06Z","phase":"Succeeded"},"delete_policies":["before-hook-creation"]}]}]}
-            """;
-        var client = CreateClient(response, out _);
+        var release = NativeRelease(hooks:
+        [
+            new NativeHelmHook
+            {
+                Name = "smoke",
+                Kind = "Pod",
+                Events = ["test"],
+                LastRun = new NativeHelmHookExecution
+                {
+                    StartedAt = DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture),
+                    CompletedAt = DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture),
+                    Phase = "Succeeded"
+                },
+                DeletePolicies = ["before-hook-creation"]
+            }
+        ]);
+        var client = CreateClient(Response(releases: [release]), out _);
 
-        var release = history ? client.History("web").ShouldHaveSingleItem() : client.List().ShouldHaveSingleItem();
+        var result = history ? client.History("web").ShouldHaveSingleItem() : client.List().ShouldHaveSingleItem();
 
-        var hook = release.Hooks.ShouldHaveSingleItem();
+        var hook = result.Hooks.ShouldHaveSingleItem();
         hook.StartedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture));
         hook.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-01-02T03:04:06Z", System.Globalization.CultureInfo.InvariantCulture));
         hook.Phase.ShouldBe("Succeeded");
@@ -438,197 +359,263 @@ public sealed class HelmClientTests
     }
 
     [Fact]
-    public void HistorySerializesMax()
+    public void HistoryForwardsMax()
     {
-        var client = CreateClient("{\"data\":[]}", out var request);
+        var client = CreateClient(Response(), out var request);
 
         client.History("web", max: 5);
 
-        request().GetProperty("max").GetInt32().ShouldBe(5);
+        request().Max.ShouldBe(5);
     }
 
     [Fact]
-    public void RollbackSendsRevision()
+    public void StatusMapsTypedRelease()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(release: NativeRelease()), out var request);
 
-        client.Rollback("web", 2);
+        client.Status("web").ShouldBe(Release());
 
-        request().GetProperty("operation").GetString().ShouldBe("rollback");
-        request().GetProperty("revision").GetInt32().ShouldBe(2);
+        request().ReleaseName.ShouldBe("web");
+        request().Operation.ShouldBe("status");
     }
 
     [Fact]
-    public void RollbackSerializesCliOptions()
+    public void StatusForwardsNamespaceAndRevision()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(release: NativeRelease(revision: 4)), out var request);
 
-        client.Rollback("web", 3, namespaceName: "apps", waitStrategy: "legacy", timeout: TimeSpan.FromSeconds(20), waitForJobs: true, disableHooks: true, dryRun: "server", forceReplace: true, forceConflicts: true, cleanupOnFail: true, historyMax: 4, description: "rollback test");
+        client.Status("web", namespaceName: "apps", revision: 4).ShouldBe(Release(4));
 
-        var json = request();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("waitStrategy").GetString().ShouldBe("legacy");
-        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(20000);
-        json.GetProperty("waitForJobs").GetBoolean().ShouldBeTrue();
-        json.GetProperty("disableHooks").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dryRun").GetString().ShouldBe("server");
-        json.GetProperty("forceReplace").GetBoolean().ShouldBeTrue();
-        json.GetProperty("forceConflicts").GetBoolean().ShouldBeTrue();
-        json.GetProperty("cleanupOnFail").GetBoolean().ShouldBeTrue();
-        json.GetProperty("historyMax").GetInt32().ShouldBe(4);
-        json.GetProperty("description").GetString().ShouldBe("rollback test");
+        request().Namespace.ShouldBe("apps");
+        request().Revision.ShouldBe(4);
     }
 
     [Fact]
-    public void UninstallSendsReleaseName()
+    public void HistoryMapsTypedReleaseArray()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var previous = NativeRelease(revision: 2);
+        var client = CreateClient(Response(releases: [NativeRelease(), previous]), out var request);
+
+        client.History("web").ShouldBe([Release(), Release(2)]);
+
+        request().Operation.ShouldBe("history");
+        request().ReleaseName.ShouldBe("web");
+    }
+
+    [Fact]
+    public void RollbackForwardsRevisionAndWait()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Rollback("web", 2, wait: true);
+
+        var captured = request();
+        captured.Operation.ShouldBe("rollback");
+        captured.ReleaseName.ShouldBe("web");
+        captured.Revision.ShouldBe(2);
+        captured.Wait.ShouldBeTrue();
+        captured.HistoryMax.ShouldBe(10);
+    }
+
+    [Fact]
+    public void RollbackDefaultsToPreviousRevisionWithoutWaiting()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Rollback("web");
+
+        request().Revision.ShouldBe(0);
+        request().Wait.ShouldBeFalse();
+        request().HistoryMax.ShouldBe(10);
+    }
+
+    [Fact]
+    public void RollbackWithRevisionDefaultsToNotWaiting()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Rollback("web", 4);
+
+        request().Revision.ShouldBe(4);
+        request().Wait.ShouldBeFalse();
+        request().HistoryMax.ShouldBe(10);
+    }
+
+    [Fact]
+    public void UninstallForwardsWaitOption()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Uninstall("web", wait: true);
+
+        request().Operation.ShouldBe("uninstall");
+        request().ReleaseName.ShouldBe("web");
+        request().Wait.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void UninstallWithHelmOptionsForwardsDeletionSemantics()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Uninstall(
+            "web", namespaceName: "apps", wait: true, waitStrategy: "watcher",
+            timeout: TimeSpan.FromSeconds(8), disableHooks: true, dryRun: true,
+            ignoreNotFound: true, keepHistory: true, cascade: "foreground", description: "cleanup");
+
+        var captured = request();
+        captured.Namespace.ShouldBe("apps");
+        captured.Wait.ShouldBeTrue();
+        captured.WaitStrategy.ShouldBe("watcher");
+        captured.TimeoutMilliseconds.ShouldBe(8000);
+        captured.DisableHooks.ShouldBeTrue();
+        captured.DryRunUninstall.ShouldBeTrue();
+        captured.IgnoreNotFound.ShouldBeTrue();
+        captured.KeepHistory.ShouldBeTrue();
+        captured.Cascade.ShouldBe("foreground");
+        captured.Description.ShouldBe("cleanup");
+    }
+
+    [Fact]
+    public void UninstallDefaultsToNotWaiting()
+    {
+        var client = CreateClient(Response(), out var request);
 
         client.Uninstall("web");
 
-        request().GetProperty("operation").GetString().ShouldBe("uninstall");
-        request().GetProperty("releaseName").GetString().ShouldBe("web");
+        request().Wait.ShouldBeFalse();
     }
 
     [Fact]
-    public void UninstallSerializesCliOptions()
+    public void GetValuesMapsDynamicJsonAndUsesConfiguredNamespace()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
-
-        client.Uninstall("web", namespaceName: "apps", waitStrategy: "watcher", timeout: TimeSpan.FromSeconds(15), disableHooks: true, dryRun: true, ignoreNotFound: true, keepHistory: true, cascade: "foreground", description: "remove test");
-
-        var json = request();
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("waitStrategy").GetString().ShouldBe("watcher");
-        json.GetProperty("timeoutMilliseconds").GetInt64().ShouldBe(15000);
-        json.GetProperty("disableHooks").GetBoolean().ShouldBeTrue();
-        json.GetProperty("dryRunUninstall").GetBoolean().ShouldBeTrue();
-        json.GetProperty("ignoreNotFound").GetBoolean().ShouldBeTrue();
-        json.GetProperty("keepHistory").GetBoolean().ShouldBeTrue();
-        json.GetProperty("cascade").GetString().ShouldBe("foreground");
-        json.GetProperty("description").GetString().ShouldBe("remove test");
-    }
-
-    [Fact]
-    public void GetValuesMapsJsonValuesAndUsesConfiguredNamespace()
-    {
-        var client = CreateClient("{\"data\":{\"replicas\":3,\"enabled\":true}}", out var request,
+        var client = CreateClient(Response(values: ParseJsonElement("""{"replicas":3,"enabled":true,"nested":{"zone":"west"}}""")), out var request,
             new HelmClientOptions { DefaultNamespace = "apps" });
 
         var values = client.GetValues("web");
 
-        values.ValueKind.ShouldBe(JsonValueKind.Object);
         values.GetProperty("replicas").GetInt32().ShouldBe(3);
         values.GetProperty("enabled").GetBoolean().ShouldBeTrue();
-        request().GetProperty("namespace").GetString().ShouldBe("apps");
-        request().GetProperty("operation").GetString().ShouldBe("values");
+        values.GetProperty("nested").GetProperty("zone").GetString().ShouldBe("west");
+        request().Namespace.ShouldBe("apps");
+        request().Operation.ShouldBe("values");
     }
 
     [Fact]
-    public void GetValuesSerializesRevisionAndAllValues()
+    public void ListRepositoriesMapsTypedRepositoryArray()
     {
-        var client = CreateClient("{\"data\":{}}", out var request);
+        var expected = new HelmRepository("stable", "https://example.test");
+        var client = CreateClient(Response(repositories: [expected]), out var request);
 
-        client.GetValues("web", revision: 3, all: true);
+        client.ListRepositories().ShouldHaveSingleItem().ShouldBe(expected);
+        client.RepoList().ShouldHaveSingleItem().ShouldBe(expected);
 
-        var json = request();
-        json.GetProperty("revision").GetInt32().ShouldBe(3);
-        json.GetProperty("allValues").GetBoolean().ShouldBeTrue();
+        request().Operation.ShouldBe("repoList");
     }
 
     [Fact]
-    public void RepoListMapsRepositoryRecords()
+    public void SearchRepoMapsTypedResultsAndOptions()
     {
-        var client = CreateClient("{\"data\":[{\"name\":\"stable\",\"url\":\"https://example.test\"}]}", out var request);
+        var expected = new HelmChartSearchResult("stable/nginx", "nginx", "1.2.3", "Nginx chart", "2.0");
+        var client = CreateClient(Response(chartSearchResults: [expected]), out var readRequest);
 
-        client.RepoList().ShouldHaveSingleItem().ShouldBe(new HelmRepository("stable", "https://example.test"));
+        client.SearchRepo("nginx", versions: true, devel: true, regexp: true, version: ">=1.0", failOnNoResult: true)
+            .ShouldHaveSingleItem().ShouldBe(expected);
 
-        request().GetProperty("operation").GetString().ShouldBe("repoList");
+        var request = readRequest();
+        request.Operation.ShouldBe("chartSearch");
+        request.SearchTerm.ShouldBe("nginx");
+        request.Versions.ShouldBeTrue();
+        request.Devel.ShouldBeTrue();
+        request.Regexp.ShouldBeTrue();
+        request.VersionConstraint.ShouldBe(">=1.0");
+        request.FailOnNoResult.ShouldBeTrue();
     }
 
     [Fact]
-    public void SearchRepoMapsQualifiedReferenceAndVersion()
+    public void ShowValuesAndGetManifestReturnTextAndForwardOptions()
     {
-        var client = CreateClient("{\"data\":[{\"reference\":\"stable/nginx\",\"chartName\":\"nginx\",\"version\":\"1.2.3\",\"app_version\":\"2.0\"}]}", out var request);
+        var client = CreateClient(Response(text: "values: {}"), out var readRequest);
 
-        client.SearchRepo("nginx").ShouldHaveSingleItem().ShouldBe(new HelmChartSearchResult("stable/nginx", "nginx", "1.2.3", AppVersion: "2.0"));
-        request().GetProperty("operation").GetString().ShouldBe("chartSearch");
-        request().GetProperty("searchTerm").GetString().ShouldBe("nginx");
+        client.ShowValues("stable/nginx", version: "1.2.3", repo: "https://charts.test", username: "user", password: "password")
+            .ShouldBe("values: {}");
+        var showValuesRequest = readRequest();
+        showValuesRequest.Operation.ShouldBe("showValues");
+        showValuesRequest.Chart.ShouldBe("stable/nginx");
+        showValuesRequest.Version.ShouldBe("1.2.3");
+        showValuesRequest.Repo.ShouldBe("https://charts.test");
+        showValuesRequest.RepositoryUsername.ShouldBe("user");
+        showValuesRequest.RepositoryPassword.ShouldBe("password");
+
+        client.GetManifest("web", namespaceName: "apps", revision: 2).ShouldBe("values: {}");
+        var manifestRequest = readRequest();
+        manifestRequest.Operation.ShouldBe("getManifest");
+        manifestRequest.Namespace.ShouldBe("apps");
+        manifestRequest.Revision.ShouldBe(2);
     }
 
     [Fact]
-    public void SearchRepoAllowsOmittedKeyword()
+    public void AddRepositoryForwardsCredentials()
     {
-        var client = CreateClient("{\"data\":[]}", out var request);
-
-        client.SearchRepo();
-
-        request().GetProperty("searchTerm").GetString().ShouldBe(string.Empty);
-    }
-
-    [Fact]
-    public void SearchRepoSerializesCliSearchOptions()
-    {
-        var client = CreateClient("{\"data\":[]}", out var request);
-
-        client.SearchRepo("nginx.*", versions: true, devel: true, regexp: true, version: ">=1.0.0 <2.0.0", failOnNoResult: true);
-
-        var json = request();
-        json.GetProperty("versions").GetBoolean().ShouldBeTrue();
-        json.GetProperty("devel").GetBoolean().ShouldBeTrue();
-        json.GetProperty("regexp").GetBoolean().ShouldBeTrue();
-        json.GetProperty("versionConstraint").GetString().ShouldBe(">=1.0.0 <2.0.0");
-        json.GetProperty("failOnNoResult").GetBoolean().ShouldBeTrue();
-    }
-
-    [Fact]
-    public void RepoAddSendsCredentials()
-    {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(), out var request);
 
         client.RepoAdd("private", "https://example.test", "user", "secret");
 
-        var json = request();
-        json.GetProperty("operation").GetString().ShouldBe("repoAdd");
-        json.GetProperty("repositoryName").GetString().ShouldBe("private");
-        json.GetProperty("repositoryUrl").GetString().ShouldBe("https://example.test");
-        json.GetProperty("repositoryUsername").GetString().ShouldBe("user");
-        json.GetProperty("repositoryPassword").GetString().ShouldBe("secret");
+        var captured = request();
+        captured.Operation.ShouldBe("repoAdd");
+        captured.RepositoryName.ShouldBe("private");
+        captured.RepositoryURL.ShouldBe("https://example.test");
+        captured.RepositoryUsername.ShouldBe("user");
+        captured.RepositoryPassword.ShouldBe("secret");
     }
 
     [Fact]
-    public void RepoAddSerializesForceUpdate()
+    public void AddRepositoryDefaultsCredentialsToNull()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(), out var request);
+
+        client.AddRepository("public", "https://example.test");
+
+        request().RepositoryUsername.ShouldBeNull();
+        request().RepositoryPassword.ShouldBeNull();
+        request().ForceUpdate.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void RepoAddForwardsForceUpdate()
+    {
+        var client = CreateClient(Response(), out var request);
 
         client.RepoAdd("stable", "https://example.test", forceUpdate: true);
 
-        request().GetProperty("forceUpdate").GetBoolean().ShouldBeTrue();
+        request().ForceUpdate.ShouldBeTrue();
     }
 
     [Fact]
     public void RepoRemoveSendsName()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(), out var request);
 
         client.RepoRemove("stable");
+        client.RemoveRepository("stable");
 
-        request().GetProperty("repositoryName").GetString().ShouldBe("stable");
-        request().GetProperty("operation").GetString().ShouldBe("repoRemove");
+        request().RepositoryName.ShouldBe("stable");
+        request().Operation.ShouldBe("repoRemove");
     }
 
     [Fact]
-    public void RepoUpdateSendsOperation()
+    public void UpdateRepositoriesDispatchesUpdateOperation()
     {
-        var client = CreateClient("{\"data\":{\"succeeded\":true}}", out var request);
+        var client = CreateClient(Response(), out var request);
 
         client.RepoUpdate();
+        client.UpdateRepositories();
 
-        request().GetProperty("operation").GetString().ShouldBe("repoUpdate");
+        request().Operation.ShouldBe("repoUpdate");
     }
 
     [Fact]
-    public void InvokePropagatesAllConfiguredOptions()
+    public void InvokeMergesAllConfiguredOptionsIntoRequest()
     {
         var options = new HelmClientOptions
         {
@@ -636,45 +623,36 @@ public sealed class HelmClientTests
             RepositoryConfig = "repositories.yaml", RepositoryCache = "cache",
             RegistryConfig = "registry.json", HelmDriver = "configmap"
         };
-        var client = CreateClient("{\"data\":[]}", out var request, options);
+        var client = CreateClient(Response(), out var request, options);
 
         client.List();
 
-        var json = request();
-        json.GetProperty("kubeconfig").GetString().ShouldBe("kube.yaml");
-        json.GetProperty("kubeContext").GetString().ShouldBe("dev");
-        json.GetProperty("namespace").GetString().ShouldBe("apps");
-        json.GetProperty("repositoryConfig").GetString().ShouldBe("repositories.yaml");
-        json.GetProperty("repositoryCache").GetString().ShouldBe("cache");
-        json.GetProperty("registryConfig").GetString().ShouldBe("registry.json");
-        json.GetProperty("helmDriver").GetString().ShouldBe("configmap");
+        var captured = request();
+        captured.Kubeconfig.ShouldBe("kube.yaml");
+        captured.KubeContext.ShouldBe("dev");
+        captured.Namespace.ShouldBe("apps");
+        captured.RepositoryConfig.ShouldBe("repositories.yaml");
+        captured.RepositoryCache.ShouldBe("cache");
+        captured.RegistryConfig.ShouldBe("registry.json");
+        captured.HelmDriver.ShouldBe("configmap");
     }
 
     [Fact]
-    public void InvokeThrowsActionExceptionWhenNativeResponseHasError()
+    public void InvokeThrowsActionExceptionWhenResponseHasError()
     {
-        var client = CreateClient("{\"error\":\"release not found\"}", out _);
+        var client = CreateClient(Response(error: "release not found", release: NativeRelease()), out _);
 
         Should.Throw<HelmActionException>(() => client.Status("missing")).Message.ShouldBe("release not found");
     }
 
     [Fact]
-    public void InvokeThrowsWhenNativeResponseIsInvalidJson()
+    public void OperationsWithMissingOptionalResultsReturnExistingEmptyDefaults()
     {
-        var client = CreateClient("not json", out _);
-
-        Should.Throw<JsonException>(() => client.List());
-    }
-
-    [Fact]
-    public void OperationsWithOptionalDataReturnEmptyDefaults()
-    {
-        var client = CreateClient("{}", out _);
+        var client = CreateClient(Response(), out _);
 
         client.List().ShouldBeEmpty();
         client.History("web").ShouldBeEmpty();
-        client.RepoList().ShouldBeEmpty();
-        client.SearchRepo("chart").ShouldBeEmpty();
+        client.ListRepositories().ShouldBeEmpty();
         var values = client.GetValues("web");
         values.ValueKind.ShouldBe(JsonValueKind.Object);
         values.EnumerateObject().Any().ShouldBeFalse();
@@ -683,81 +661,143 @@ public sealed class HelmClientTests
     }
 
     [Fact]
-    public void InstallThrowsWhenNativeResponseHasNoRelease()
+    public void InstallThrowsWhenResponseHasNoRelease()
     {
-        var client = CreateClient("{}", out _);
+        var client = CreateClient(Response(), out _);
 
         Should.Throw<InvalidOperationException>(() => client.Install("web", "chart"));
     }
 
     [Fact]
-    public void NativeCallCopiesRequestAndFreesResponse()
+    public void StatusThrowsWhenResponseHasNoRelease()
     {
-        var native = new FakeNativeApi("{\"data\":[]}");
-        var client = new HelmClient(new HelmClientOptions { DefaultNamespace = "apps" }, native);
+        var client = CreateClient(Response(), out _);
 
-        client.List().ShouldBeEmpty();
-
-        native.Request.ShouldNotBeNull();
-        using var request = JsonDocument.Parse(native.Request);
-        request.RootElement.GetProperty("operation").GetString().ShouldBe("list");
-        request.RootElement.GetProperty("namespace").GetString().ShouldBe("apps");
-        native.WasFreed.ShouldBeTrue();
+        Should.Throw<InvalidOperationException>(() => client.Status("web"));
     }
 
-    [Fact]
-    public void NativeLibraryExecutesAndReturnsItsActionError()
+    private static HelmClient CreateClient(
+        NativeHelmResponse response,
+        out Func<NativeHelmRequest> readRequest,
+        HelmClientOptions? options = null)
     {
-        var response = HelmNativeInterop.Invoke(
-            Encoding.UTF8.GetBytes("{\"operation\":\"unsupported\"}"),
-            HelmNativeInterop.DefaultApi);
-
-        response.ShouldContain("unsupported operation: unsupported");
-    }
-
-    [Fact]
-    public void NativeCallThrowsWhenNativeReturnsNull()
-    {
-        var native = new FakeNativeApi(null);
-        var client = new HelmClient(new HelmClientOptions(), native);
-
-        Should.Throw<InvalidOperationException>(() => client.List()).Message.ShouldContain("null response");
-        native.WasFreed.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void NativeCallFreesResponseWhenItCannotBeDecoded()
-    {
-        var native = new FakeNativeApi("unused") { ReturnUndecodableString = true };
-        var client = new HelmClient(new HelmClientOptions(), native);
-
-        Should.Throw<InvalidOperationException>(() => client.List()).Message.ShouldContain("invalid response");
-        native.WasFreed.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void NativeRequestUsesCamelCaseJsonFields()
-    {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new NativeHelmRequest("repoAdd", RepositoryURL: "https://example.test"), NativeJsonContext.Default.NativeHelmRequest);
-
-        var text = Encoding.UTF8.GetString(bytes);
-        text.ShouldContain("\"operation\"");
-        text.ShouldContain("\"repositoryUrl\"");
-        text.Contains("\"Operation\"", StringComparison.Ordinal).ShouldBeFalse();
-    }
-
-    private static HelmClient CreateClient(string response, out Func<JsonElement> readRequest, HelmClientOptions? options = null)
-    {
-        JsonElement? captured = null;
-        var client = new HelmClient(options ?? new HelmClientOptions(), payload =>
+        NativeHelmRequest? captured = null;
+        var nativeApi = new FakeNativeApi(request =>
         {
-            using var document = JsonDocument.Parse(payload);
-            captured = document.RootElement.Clone();
+            captured = request;
             return response;
         });
+        var client = new HelmClient(options ?? new HelmClientOptions(), nativeApi);
         readRequest = () => captured ?? throw new InvalidOperationException("No native request was captured.");
         return client;
     }
+
+    private sealed class LegacyHelmClient : IHelmClient
+    {
+        public bool LastAllNamespaces { get; private set; }
+        public string? LastFilter { get; private set; }
+
+        public IReadOnlyList<HelmRelease> List(string? namespaceName = null, bool allNamespaces = false, string? filter = null, int max = 256, int offset = 0, string? selector = null, bool deployed = false, bool failed = false, bool pending = false, bool superseded = false, bool uninstalled = false, bool uninstalling = false, bool dateSort = false, bool reverse = false)
+        {
+            LastAllNamespaces = allNamespaces;
+            LastFilter = filter;
+            return [Release()];
+        }
+    }
+
+    private sealed class LegacyRepositoryHelmClient : IHelmClient
+    {
+        public string? LastOperation { get; private set; }
+        public string? LastName { get; private set; }
+        public string? LastUsername { get; private set; }
+        public string? LastPassword { get; private set; }
+        public bool LastForceUpdate { get; private set; }
+
+        public IReadOnlyList<HelmRepository> RepoList()
+        {
+            LastOperation = "repoList";
+            return [new HelmRepository("stable", "https://example.test")];
+        }
+
+        public void RepoAdd(string name, string url, string? username = null, string? password = null, bool forceUpdate = false)
+        {
+            LastOperation = "repoAdd";
+            LastName = name;
+            LastUsername = username;
+            LastPassword = password;
+            LastForceUpdate = forceUpdate;
+        }
+
+        public void RepoRemove(string repository)
+        {
+            LastOperation = "repoRemove";
+            LastName = repository;
+        }
+
+        public void RepoUpdate() => LastOperation = "repoUpdate";
+    }
+
+    private sealed class LegacyReleaseHelmClient : IHelmClient
+    {
+        private static readonly JsonElement Values = ParseJsonElement("{\"enabled\":true}");
+
+        public string? LastOperation { get; private set; }
+        public string? LastReleaseName { get; private set; }
+        public string? LastNamespace { get; private set; }
+        public int LastNumber { get; private set; }
+        public bool LastAllValues { get; private set; }
+
+        public HelmRelease Status(string releaseName, string? namespaceName = null, int revision = 0)
+        {
+            LastOperation = "status";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = revision;
+            return Release();
+        }
+
+        public IReadOnlyList<HelmRelease> History(string releaseName, string? namespaceName = null, int max = 256)
+        {
+            LastOperation = "history";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = max;
+            return [Release()];
+        }
+
+        public JsonElement GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false)
+        {
+            LastOperation = "values";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = revision;
+            LastAllValues = all;
+            return Values;
+        }
+    }
+
+    private sealed class FakeNativeApi(Func<NativeHelmRequest, NativeHelmResponse> execute) : IHelmNativeApi
+    {
+        public NativeHelmResponse Execute(NativeHelmRequest request) => execute(request);
+    }
+
+    private static NativeHelmResponse Response(
+        string? error = null,
+        string? text = null,
+        JsonElement? values = null,
+        NativeHelmRelease? release = null,
+        NativeHelmRelease[]? releases = null,
+        HelmRepository[]? repositories = null,
+        HelmChartSearchResult[]? chartSearchResults = null) => new()
+        {
+            Error = error,
+            Text = text,
+            Values = values,
+            Release = release,
+            Releases = releases,
+            Repositories = repositories,
+            ChartSearchResults = chartSearchResults
+        };
 
     private static JsonElement ParseJsonElement(string json)
     {
@@ -765,36 +805,18 @@ public sealed class HelmClientTests
         return document.RootElement.Clone();
     }
 
-    private sealed class FakeNativeApi(string? response) : IHelmNativeApi
+    private static NativeHelmRelease NativeRelease(int revision = 3, NativeHelmHook[]? hooks = null) => new()
     {
-        private nint _responsePointer;
+        Name = "web",
+        Namespace = "apps",
+        Revision = revision,
+        Updated = DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture),
+        Status = "deployed",
+        Chart = "nginx-1.2.3",
+        AppVersion = "2.0",
+        Hooks = hooks ?? []
+    };
 
-        public byte[]? Request { get; private set; }
-        public bool WasFreed { get; private set; }
-        public bool ReturnUndecodableString { get; init; }
-
-        public nint Execute(nint input)
-        {
-            var bytes = new List<byte>();
-            for (var offset = 0; Marshal.ReadByte(input, offset) != 0; offset++)
-                bytes.Add(Marshal.ReadByte(input, offset));
-            Request = bytes.ToArray();
-            if (response is null)
-                return 0;
-
-            var responseBytes = Encoding.UTF8.GetBytes(response + "\0");
-            _responsePointer = Marshal.AllocHGlobal(responseBytes.Length);
-            Marshal.Copy(responseBytes, 0, _responsePointer, responseBytes.Length);
-            return _responsePointer;
-        }
-
-        public string? GetString(nint value) => ReturnUndecodableString ? null : Marshal.PtrToStringUTF8(value);
-
-        public void Free(nint value)
-        {
-            WasFreed = true;
-            Marshal.FreeHGlobal(value);
-            _responsePointer = 0;
-        }
-    }
+    private static HelmRelease Release(int revision = 3) => new(
+        "web", "apps", revision, DateTimeOffset.Parse("2026-01-02T03:04:05Z", System.Globalization.CultureInfo.InvariantCulture), "deployed", "nginx-1.2.3", "2.0");
 }

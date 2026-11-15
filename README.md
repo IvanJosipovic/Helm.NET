@@ -32,6 +32,7 @@ var charts = helm.SearchRepo("nginx", versions: true);
 var preview = helm.Template("preview", "bitnami/nginx");
 using var valuesJson = JsonDocument.Parse("""{"replicaCount":2}""");
 var release = helm.Install("my-release", "bitnami/nginx",
+    namespaceName: "apps",
     setValues: valuesJson.RootElement,
     wait: true);
 
@@ -49,11 +50,11 @@ var replicas = values.GetProperty("replicaCount").GetInt32();
 | Chart actions | `Template`, `Install`, `Upgrade`, `Rollback`, `Uninstall` |
 | Repositories | `RepoAdd`, `RepoList`, `RepoRemove`, `RepoUpdate`, `SearchRepo` |
 
-Methods return typed .NET values. `HelmRelease` includes chart name/version, app version, revision, description, notes, resources, and hooks when Helm provides them.
+The action API supports `ListReleases`, `Template`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. Chart values are passed and returned as `JsonElement`, preserving their full JSON shape without dictionary wrappers. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
 
 `setValues` accepts a `JsonElement` containing a JSON object. `GetValues` returns that object as a `JsonElement`; pass `revision` to read an older release revision or `all: true` to include chart defaults.
 
-`namespaceName` can be supplied per call. If omitted, `HelmClientOptions.DefaultNamespace` applies. `List(allNamespaces: true)` lists releases across namespaces.
+`namespaceName` can be supplied per call; pass `null`, or use a convenience overload that omits it, to apply `HelmClientOptions.DefaultNamespace`. `List(allNamespaces: true)` lists releases across namespaces.
 
 Chart actions accept values files and inline values, chart version selection, wait and timeout controls, dry-run, hook and post-renderer controls, and chart repository download settings. `SearchRepo` searches configured repository indexes; run `RepoUpdate` to refresh them. Repository and OCI chart references follow Helm resolution rules. OCI credentials use `RegistryConfig`.
 

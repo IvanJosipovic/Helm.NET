@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,23 +20,271 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func TestHandleJSONRejectsMalformedInput(t *testing.T) {
-	var got result
-	if err := json.Unmarshal(handleJSON([]byte("{")), &got); err != nil {
+func TestRequestFromNativeMapsFieldsAndDynamicValues(t *testing.T) {
+	got, err := requestFromNative(nativeRequest{
+		ABIVersion: nativeABIVersion,
+		Operation:  "install", ReleaseName: "web-雪", Chart: "oci://charts.example/app",
+		ValuesFiles:     []string{"prod.yaml", "overrides.yaml"},
+		ValuesJSON:      `{"replicas":3,"enabled":true,"nested":{"zone":"west","ports":[80,443]}}`,
+		CreateNamespace: true, Wait: true, TimeoutMilliseconds: 12345,
+		Kubeconfig: "C:/配置/kube.yaml", KubeContext: "dev-日本", Namespace: "apps",
+		AllNamespaces: true, Filter: "^web$", Revision: 7, InstallIfMissing: true,
+		RepositoryConfig: "repositories.yaml", RepositoryCache: "cache",
+		RegistryConfig: "registry.json", HelmDriver: "configmap",
+		RepositoryName: "private", RepositoryURL: "https://example.test/雪",
+		RepositoryUsername: "user", RepositoryPassword: "secret",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Error == "" {
-		t.Fatal("expected a JSON parsing error")
+
+	if got.Operation != "install" || got.ReleaseName != "web-雪" || got.Chart != "oci://charts.example/app" {
+		t.Fatalf("unexpected operation fields: %#v", got)
+	}
+	if len(got.ValuesFiles) != 2 || got.ValuesFiles[0] != "prod.yaml" || got.ValuesFiles[1] != "overrides.yaml" {
+		t.Fatalf("unexpected values files: %#v", got.ValuesFiles)
+	}
+	if got.Values["replicas"] != float64(3) || got.Values["enabled"] != true {
+		t.Fatalf("unexpected scalar values: %#v", got.Values)
+	}
+	nested, ok := got.Values["nested"].(map[string]any)
+	if !ok || nested["zone"] != "west" {
+		t.Fatalf("unexpected nested values: %#v", got.Values["nested"])
+	}
+	ports, ok := nested["ports"].([]any)
+	if !ok || len(ports) != 2 || ports[0] != float64(80) || ports[1] != float64(443) {
+		t.Fatalf("unexpected dynamic JSON array: %#v", nested["ports"])
+	}
+	if !got.CreateNamespace || !got.Wait || got.TimeoutMilliseconds != 12345 || !got.AllNamespaces || !got.InstallIfMissing || got.Revision != 7 {
+		t.Fatalf("numeric/boolean ABI fields were not preserved: %#v", got)
+	}
+	if got.Kubeconfig != "C:/配置/kube.yaml" || got.KubeContext != "dev-日本" || got.Namespace != "apps" || got.Filter != "^web$" {
+		t.Fatalf("unexpected config fields: %#v", got)
+	}
+	if got.RepositoryConfig != "repositories.yaml" || got.RepositoryCache != "cache" || got.RegistryConfig != "registry.json" || got.HelmDriver != "configmap" {
+		t.Fatalf("unexpected Helm config fields: %#v", got)
+	}
+	if got.RepositoryName != "private" || got.RepositoryURL != "https://example.test/雪" || got.RepositoryUsername != "user" || got.RepositoryPassword != "secret" {
+		t.Fatalf("unexpected repository fields: %#v", got)
 	}
 }
 
-func TestHandleJSONReturnsUnsupportedOperation(t *testing.T) {
-	var got result
-	if err := json.Unmarshal(handleJSON([]byte(`{"operation":"not-an-operation"}`)), &got); err != nil {
+func TestRequestFromNativeMapsHelmCliOptions(t *testing.T) {
+	got, err := requestFromNative(nativeRequest{
+		ABIVersion: nativeABIVersion, Operation: "upgrade", Version: "1.2.3", SearchTerm: "nginx",
+		Versions: true, Devel: true, Regexp: true, VersionConstraint: ">=1.0", FailOnNoResult: true,
+		Max: 12, Offset: 3, Selector: "app=web", Deployed: true, Failed: true, Pending: true,
+		Superseded: true, Uninstalled: true, Uninstalling: true, Date: true, Reverse: true,
+		ResetValues: true, ReuseValues: true, ResetThenReuseValues: true, DryRun: "server",
+		HideSecret: true, DisableHooks: true, PostRenderer: "renderer", PostRendererArgs: []string{"--flag"},
+		WaitForJobs: true, RollbackOnFailure: true, DependencyUpdate: true, SkipCrds: true,
+		SkipSchemaValidation: true, DisableOpenApiValidation: true, Description: "description",
+		ForceUpdate: true, WaitStrategy: "watcher", Replace: true, ForceReplace: true,
+		ForceConflicts: true, TakeOwnership: true, CleanupOnFail: true, HistoryMax: 20,
+		DryRunUninstall: true, IgnoreNotFound: true, KeepHistory: true, Cascade: "foreground",
+		Repo: "https://charts.example", CaFile: "ca.pem", CertFile: "client.pem", KeyFile: "client.key",
+		InsecureSkipTlsVerify: true, PassCredentials: true, PlainHttp: true,
+		ApiVersions: []string{"v1", "apps/v1"}, KubeVersion: "1.31", IncludeCrds: true,
+		SkipTests: true, IsUpgrade: true,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Error != "unsupported operation: not-an-operation" {
-		t.Fatalf("unexpected error: %q", got.Error)
+
+	if got.Version != "1.2.3" || got.SearchTerm != "nginx" || !got.Versions || !got.Devel || !got.Regexp || got.VersionConstraint != ">=1.0" || !got.FailOnNoResult {
+		t.Fatalf("chart search options were not preserved: %#v", got)
+	}
+	if got.Max != 12 || got.Offset != 3 || got.Selector != "app=web" || !got.Deployed || !got.Failed || !got.Pending || !got.Superseded || !got.Uninstalled || !got.Uninstalling || !got.Date || !got.Reverse {
+		t.Fatalf("list options were not preserved: %#v", got)
+	}
+	if !got.ResetValues || !got.ReuseValues || !got.ResetThenReuseValues || got.DryRun != "server" || !got.HideSecret || !got.DisableHooks || got.PostRenderer != "renderer" || len(got.PostRendererArgs) != 1 {
+		t.Fatalf("render/upgrade options were not preserved: %#v", got)
+	}
+	if !got.WaitForJobs || !got.RollbackOnFailure || !got.DependencyUpdate || !got.SkipCrds || !got.SkipSchemaValidation || !got.DisableOpenApiValidation || got.Description != "description" || !got.ForceUpdate || got.WaitStrategy != "watcher" {
+		t.Fatalf("install options were not preserved: %#v", got)
+	}
+	if !got.Replace || !got.ForceReplace || !got.ForceConflicts || !got.TakeOwnership || !got.CleanupOnFail || got.HistoryMax != 20 || !got.DryRunUninstall || !got.IgnoreNotFound || !got.KeepHistory || got.Cascade != "foreground" {
+		t.Fatalf("rollback/uninstall options were not preserved: %#v", got)
+	}
+	if got.Repo != "https://charts.example" || got.CaFile != "ca.pem" || got.CertFile != "client.pem" || got.KeyFile != "client.key" || !got.InsecureSkipTlsVerify || !got.PassCredentials || !got.PlainHttp || len(got.ApiVersions) != 2 || got.KubeVersion != "1.31" || !got.IncludeCrds || !got.SkipTests || !got.IsUpgrade {
+		t.Fatalf("chart source/capability options were not preserved: %#v", got)
+	}
+}
+
+func TestRequestFromNativeLeavesOmittedOptionalFieldsEmpty(t *testing.T) {
+	got, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion, Operation: "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kubeconfig != "" || got.KubeContext != "" || got.Namespace != "" || got.Filter != "" || got.RepositoryURL != "" {
+		t.Fatalf("omitted optional strings were not empty: %#v", got)
+	}
+	if got.ValuesFiles != nil || got.Values != nil || got.CreateNamespace || got.Wait || got.AllNamespaces || got.InstallIfMissing {
+		t.Fatalf("omitted optional fields were not empty: %#v", got)
+	}
+}
+
+func TestRequestFromNativeRejectsUnsupportedABIVersion(t *testing.T) {
+	_, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion + 1, Operation: "list"})
+	if err == nil || err.Error() != "unsupported Helm native ABI version: 2" {
+		t.Fatalf("expected unsupported ABI version error, got %v", err)
+	}
+}
+
+func TestRequestFromNativeRejectsMissingOperation(t *testing.T) {
+	_, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion})
+	if err == nil || err.Error() != "operation is required" {
+		t.Fatalf("expected missing operation error, got %v", err)
+	}
+}
+
+func TestRequestFromNativeRejectsInvalidValuesJSON(t *testing.T) {
+	_, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion, Operation: "template", ValuesJSON: `{"items":[`})
+	if err == nil || !strings.Contains(err.Error(), "invalid values JSON") {
+		t.Fatalf("expected invalid dynamic JSON error, got %v", err)
+	}
+}
+
+func TestResponseFromResultEncodesTypedResultKinds(t *testing.T) {
+	deployed := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.FixedZone("UTC+2", 2*60*60))
+	release := map[string]any{
+		"name": "web", "namespace": "apps", "revision": 3, "updated": deployed,
+		"status": "deployed", "chart": "nginx-1.2.3", "app_version": "2.0",
+	}
+	tests := []struct {
+		name      string
+		operation string
+		data      any
+		kind      int32
+	}{
+		{name: "text", operation: "template", data: "rendered yaml", kind: nativeResultText},
+		{name: "single release", operation: "status", data: release, kind: nativeResultRelease},
+		{name: "release array", operation: "list", data: []map[string]any{release}, kind: nativeResultReleases},
+		{name: "repository array", operation: "repoList", data: []map[string]string{{"name": "stable", "url": "https://example.test"}}, kind: nativeResultRepositories},
+		{name: "chart search array", operation: "chartSearch", data: []map[string]any{{"reference": "stable/nginx", "chartName": "nginx", "version": "1.2.3", "app_version": "2.0", "description": "Nginx chart"}}, kind: nativeResultChartSearchResults},
+		{name: "dynamic JSON", operation: "values", data: map[string]any{"nested": map[string]any{"enabled": true}}, kind: nativeResultJSON},
+		{name: "acknowledgement", operation: "repoUpdate", data: nil, kind: nativeResultAck},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := responseFromResult(test.operation, test.data, "")
+			if got.ABIVersion != nativeABIVersion || got.ResultKind != test.kind || got.Error != "" {
+				t.Fatalf("unexpected typed response header: %#v", got)
+			}
+			switch test.kind {
+			case nativeResultText:
+				if got.Text != "rendered yaml" {
+					t.Fatalf("unexpected text result: %q", got.Text)
+				}
+			case nativeResultRelease:
+				want := nativeRelease{
+					Name: "web", Namespace: "apps", Revision: 3,
+					Updated: deployed.Format(time.RFC3339Nano), Status: "deployed",
+					Chart: "nginx-1.2.3", AppVersion: "2.0",
+				}
+				if got.Release == nil || !reflect.DeepEqual(*got.Release, want) {
+					t.Fatalf("got release %#v, want %#v", got.Release, want)
+				}
+			case nativeResultReleases:
+				want := nativeRelease{
+					Name: "web", Namespace: "apps", Revision: 3,
+					Updated: deployed.Format(time.RFC3339Nano), Status: "deployed",
+					Chart: "nginx-1.2.3", AppVersion: "2.0",
+				}
+				if len(got.Releases) != 1 || !reflect.DeepEqual(got.Releases[0], want) {
+					t.Fatalf("got releases %#v, want one %#v", got.Releases, want)
+				}
+			case nativeResultRepositories:
+				if len(got.Repositories) != 1 || got.Repositories[0].Name != "stable" || got.Repositories[0].URL != "https://example.test" {
+					t.Fatalf("unexpected repositories result: %#v", got.Repositories)
+				}
+			case nativeResultChartSearchResults:
+				if len(got.ChartSearchResults) != 1 || got.ChartSearchResults[0] != (nativeChartSearchResult{
+					Reference: "stable/nginx", ChartName: "nginx", Version: "1.2.3",
+					AppVersion: "2.0", Description: "Nginx chart",
+				}) {
+					t.Fatalf("unexpected chart search results: %#v", got.ChartSearchResults)
+				}
+			case nativeResultJSON:
+				var decoded map[string]any
+				if err := json.Unmarshal([]byte(got.JSON), &decoded); err != nil {
+					t.Fatal(err)
+				}
+				if decoded["nested"].(map[string]any)["enabled"] != true {
+					t.Fatalf("dynamic JSON leaf changed: %s", got.JSON)
+				}
+			case nativeResultAck:
+				if got.Text != "" || got.JSON != "" || got.Release != nil || len(got.Releases) != 0 || len(got.Repositories) != 0 {
+					t.Fatalf("acknowledgement populated an unrelated result field: %#v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestResponseFromResultPreservesEmptyTypedArrays(t *testing.T) {
+	releases := responseFromResult("list", []map[string]any{}, "")
+	if releases.ResultKind != nativeResultReleases || releases.Releases == nil || len(releases.Releases) != 0 {
+		t.Fatalf("expected an empty allocated release array, got %#v", releases)
+	}
+
+	repositories := responseFromResult("repoList", []map[string]string{}, "")
+	if repositories.ResultKind != nativeResultRepositories || repositories.Repositories == nil || len(repositories.Repositories) != 0 {
+		t.Fatalf("expected an empty allocated repository array, got %#v", repositories)
+	}
+
+	searchResults := responseFromResult("chartSearch", []map[string]any{}, "")
+	if searchResults.ResultKind != nativeResultChartSearchResults || searchResults.ChartSearchResults == nil || len(searchResults.ChartSearchResults) != 0 {
+		t.Fatalf("expected an empty allocated chart search array, got %#v", searchResults)
+	}
+}
+
+func TestResponseFromResultKeepsActionErrorSeparateFromTypedData(t *testing.T) {
+	got := responseFromResult("status", nil, "release not found")
+	if got.ABIVersion != nativeABIVersion || got.Error != "release not found" || got.ResultKind != 0 || got.Release != nil {
+		t.Fatalf("unexpected error response: %#v", got)
+	}
+}
+
+func TestResponseFromResultRejectsInvalidTypedResult(t *testing.T) {
+	got := responseFromResult("status", "not a release", "")
+	if got.Error != "expected release result" || got.ResultKind != 0 || got.ABIVersion != nativeABIVersion {
+		t.Fatalf("unexpected invalid result response: %#v", got)
+	}
+}
+
+func TestResponseFromResultRejectsMismatchedPayloads(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		data      any
+		wantError string
+	}{
+		{name: "text type", operation: "template", data: 42, wantError: "expected text result"},
+		{name: "release list type", operation: "history", data: "not a list", wantError: "expected release list result"},
+		{name: "release item", operation: "list", data: []map[string]any{{"updated": "not a time"}}, wantError: "invalid release in result list"},
+		{name: "repository list type", operation: "repoList", data: "not a list", wantError: "expected repository list result"},
+		{name: "unencodable dynamic JSON", operation: "values", data: make(chan int), wantError: "failed to encode Helm response"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := responseFromResult(test.operation, test.data, "")
+			if got.Error != test.wantError || got.ResultKind != 0 || got.ABIVersion != nativeABIVersion {
+				t.Fatalf("got response %#v, want error %q", got, test.wantError)
+			}
+		})
+	}
+}
+
+func TestExecuteDispatchesUnsupportedOperationErrorWithoutEnvelope(t *testing.T) {
+	req, err := requestFromNative(nativeRequest{ABIVersion: nativeABIVersion, Operation: "not-an-operation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, actionError := execute(req)
+	got := responseFromResult(req.Operation, data, actionError)
+	if got.Error != "unsupported operation: not-an-operation" || got.ResultKind != 0 {
+		t.Fatalf("unexpected dispatch error response: %#v", got)
 	}
 }
 

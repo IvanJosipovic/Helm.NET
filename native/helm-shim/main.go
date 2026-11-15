@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,116 +35,90 @@ import (
 )
 
 type request struct {
-	Operation                string         `json:"operation"`
-	Kubeconfig               string         `json:"kubeconfig,omitempty"`
-	KubeContext              string         `json:"kubeContext,omitempty"`
-	Namespace                string         `json:"namespace,omitempty"`
-	Chart                    string         `json:"chart,omitempty"`
-	ReleaseName              string         `json:"releaseName,omitempty"`
-	ValuesFiles              []string       `json:"valuesFiles,omitempty"`
-	Values                   map[string]any `json:"values,omitempty"`
-	Wait                     bool           `json:"wait,omitempty"`
-	CreateNamespace          bool           `json:"createNamespace,omitempty"`
-	TimeoutMilliseconds      int64          `json:"timeoutMilliseconds,omitempty"`
-	AllNamespaces            bool           `json:"allNamespaces,omitempty"`
-	Filter                   string         `json:"filter,omitempty"`
-	Revision                 int            `json:"revision,omitempty"`
-	InstallIfMissing         bool           `json:"installIfMissing,omitempty"`
-	RepositoryConfig         string         `json:"repositoryConfig,omitempty"`
-	RepositoryCache          string         `json:"repositoryCache,omitempty"`
-	RegistryConfig           string         `json:"registryConfig,omitempty"`
-	HelmDriver               string         `json:"helmDriver,omitempty"`
-	RepositoryName           string         `json:"repositoryName,omitempty"`
-	RepositoryURL            string         `json:"repositoryUrl,omitempty"`
-	RepositoryUsername       string         `json:"repositoryUsername,omitempty"`
-	RepositoryPassword       string         `json:"repositoryPassword,omitempty"`
-	ForceUpdate              bool           `json:"forceUpdate,omitempty"`
-	Version                  string         `json:"version,omitempty"`
-	SearchTerm               string         `json:"searchTerm,omitempty"`
-	AllValues                bool           `json:"allValues,omitempty"`
-	Versions                 bool           `json:"versions,omitempty"`
-	Devel                    bool           `json:"devel,omitempty"`
-	Regexp                   bool           `json:"regexp,omitempty"`
-	VersionConstraint        string         `json:"versionConstraint,omitempty"`
-	FailOnNoResult           bool           `json:"failOnNoResult,omitempty"`
-	Max                      int            `json:"max,omitempty"`
-	Offset                   int            `json:"offset,omitempty"`
-	Selector                 string         `json:"selector,omitempty"`
-	Deployed                 bool           `json:"deployed,omitempty"`
-	Failed                   bool           `json:"failed,omitempty"`
-	Pending                  bool           `json:"pending,omitempty"`
-	Superseded               bool           `json:"superseded,omitempty"`
-	Uninstalled              bool           `json:"uninstalled,omitempty"`
-	Uninstalling             bool           `json:"uninstalling,omitempty"`
-	Date                     bool           `json:"date,omitempty"`
-	ResetValues              bool           `json:"resetValues,omitempty"`
-	ReuseValues              bool           `json:"reuseValues,omitempty"`
-	ResetThenReuseValues     bool           `json:"resetThenReuseValues,omitempty"`
-	DryRun                   string         `json:"dryRun,omitempty"`
-	HideSecret               bool           `json:"hideSecret,omitempty"`
-	DisableHooks             bool           `json:"disableHooks,omitempty"`
-	PostRenderer             string         `json:"postRenderer,omitempty"`
-	PostRendererArgs         []string       `json:"postRendererArgs,omitempty"`
-	WaitForJobs              bool           `json:"waitForJobs,omitempty"`
-	RollbackOnFailure        bool           `json:"rollbackOnFailure,omitempty"`
-	Reverse                  bool           `json:"reverse,omitempty"`
-	DependencyUpdate         bool           `json:"dependencyUpdate,omitempty"`
-	SkipCrds                 bool           `json:"skipCrds,omitempty"`
-	SkipSchemaValidation     bool           `json:"skipSchemaValidation,omitempty"`
-	DisableOpenApiValidation bool           `json:"disableOpenApiValidation,omitempty"`
-	Description              string         `json:"description,omitempty"`
-	WaitStrategy             string         `json:"waitStrategy,omitempty"`
-	Replace                  bool           `json:"replace,omitempty"`
-	ForceReplace             bool           `json:"forceReplace,omitempty"`
-	ForceConflicts           bool           `json:"forceConflicts,omitempty"`
-	TakeOwnership            bool           `json:"takeOwnership,omitempty"`
-	CleanupOnFail            bool           `json:"cleanupOnFail,omitempty"`
-	HistoryMax               int            `json:"historyMax,omitempty"`
-	DryRunUninstall          bool           `json:"dryRunUninstall,omitempty"`
-	IgnoreNotFound           bool           `json:"ignoreNotFound,omitempty"`
-	KeepHistory              bool           `json:"keepHistory,omitempty"`
-	Cascade                  string         `json:"cascade,omitempty"`
-	Repo                     string         `json:"repo,omitempty"`
-	CaFile                   string         `json:"caFile,omitempty"`
-	CertFile                 string         `json:"certFile,omitempty"`
-	KeyFile                  string         `json:"keyFile,omitempty"`
-	InsecureSkipTlsVerify    bool           `json:"insecureSkipTlsVerify,omitempty"`
-	PassCredentials          bool           `json:"passCredentials,omitempty"`
-	PlainHttp                bool           `json:"plainHttp,omitempty"`
-	ApiVersions              []string       `json:"apiVersions,omitempty"`
-	KubeVersion              string         `json:"kubeVersion,omitempty"`
-	IncludeCrds              bool           `json:"includeCrds,omitempty"`
-	SkipTests                bool           `json:"skipTests,omitempty"`
-	IsUpgrade                bool           `json:"isUpgrade,omitempty"`
-}
-
-type result struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
+	Operation                string
+	Kubeconfig               string
+	KubeContext              string
+	Namespace                string
+	Chart                    string
+	ReleaseName              string
+	ValuesFiles              []string
+	Values                   map[string]any
+	Wait                     bool
+	CreateNamespace          bool
+	TimeoutMilliseconds      int64
+	AllNamespaces            bool
+	Filter                   string
+	Revision                 int
+	InstallIfMissing         bool
+	RepositoryConfig         string
+	RepositoryCache          string
+	RegistryConfig           string
+	HelmDriver               string
+	RepositoryName           string
+	RepositoryURL            string
+	RepositoryUsername       string
+	RepositoryPassword       string
+	ForceUpdate              bool
+	Version                  string
+	SearchTerm               string
+	AllValues                bool
+	Versions                 bool
+	Devel                    bool
+	Regexp                   bool
+	VersionConstraint        string
+	FailOnNoResult           bool
+	Max                      int
+	Offset                   int
+	Selector                 string
+	Deployed                 bool
+	Failed                   bool
+	Pending                  bool
+	Superseded               bool
+	Uninstalled              bool
+	Uninstalling             bool
+	Date                     bool
+	ResetValues              bool
+	ReuseValues              bool
+	ResetThenReuseValues     bool
+	DryRun                   string
+	HideSecret               bool
+	DisableHooks             bool
+	PostRenderer             string
+	PostRendererArgs         []string
+	WaitForJobs              bool
+	RollbackOnFailure        bool
+	Reverse                  bool
+	DependencyUpdate         bool
+	SkipCrds                 bool
+	SkipSchemaValidation     bool
+	DisableOpenApiValidation bool
+	Description              string
+	WaitStrategy             string
+	Replace                  bool
+	ForceReplace             bool
+	ForceConflicts           bool
+	TakeOwnership            bool
+	CleanupOnFail            bool
+	HistoryMax               int
+	DryRunUninstall          bool
+	IgnoreNotFound           bool
+	KeepHistory              bool
+	Cascade                  string
+	Repo                     string
+	CaFile                   string
+	CertFile                 string
+	KeyFile                  string
+	InsecureSkipTlsVerify    bool
+	PassCredentials          bool
+	PlainHttp                bool
+	ApiVersions              []string
+	KubeVersion              string
+	IncludeCrds              bool
+	SkipTests                bool
+	IsUpgrade                bool
 }
 
 var repositoryFileMu sync.Mutex
-
-func handleJSON(input []byte) (encoded []byte) {
-	response := result{}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			response = result{Error: fmt.Sprintf("Helm native call panicked: %v", recovered)}
-			encoded, _ = json.Marshal(response)
-		}
-	}()
-	var req request
-	if err := json.Unmarshal(input, &req); err != nil {
-		response.Error = err.Error()
-	} else {
-		response.Data, response.Error = execute(req)
-	}
-	encoded, err := json.Marshal(response)
-	if err != nil {
-		return []byte(`{"error":"failed to encode Helm response"}`)
-	}
-	return encoded
-}
 
 func execute(req request) (any, string) {
 	switch req.Operation {

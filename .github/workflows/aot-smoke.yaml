@@ -24,27 +24,27 @@ jobs:
           - rid: win-x64
             runner: windows-latest
             executable_prefix: .\aot-publish-
-            executable_suffix: \Helm.NET.Tests.E2E.AOT.exe
+            executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: win-arm64
             runner: windows-11-arm
             executable_prefix: .\aot-publish-
-            executable_suffix: \Helm.NET.Tests.E2E.AOT.exe
+            executable_suffix: \Helm.NET.AotSmoke.exe
           - rid: linux-x64
             runner: ubuntu-latest
             executable_prefix: ./aot-publish-
-            executable_suffix: /Helm.NET.Tests.E2E.AOT
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: linux-arm64
             runner: ubuntu-26.04-arm
             executable_prefix: ./aot-publish-
-            executable_suffix: /Helm.NET.Tests.E2E.AOT
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-x64
             runner: macos-26-intel
             executable_prefix: ./aot-publish-
-            executable_suffix: /Helm.NET.Tests.E2E.AOT
+            executable_suffix: /Helm.NET.AotSmoke
           - rid: osx-arm64
             runner: macos-latest
             executable_prefix: ./aot-publish-
-            executable_suffix: /Helm.NET.Tests.E2E.AOT
+            executable_suffix: /Helm.NET.AotSmoke
 
     steps:
       - uses: actions/checkout@v7
@@ -60,7 +60,7 @@ jobs:
 
       - name: Publish NativeAOT smoke application
         run: >-
-          dotnet publish tests/Helm.NET.Tests.E2E.AOT/Helm.NET.Tests.E2E.AOT.csproj
+          dotnet publish tests/Helm.NET.AotSmoke/Helm.NET.AotSmoke.csproj
           --configuration Release
           --framework ${{ matrix.framework }}
           --runtime ${{ matrix.rid }}
@@ -93,11 +93,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
 
       - name: Provision an ephemeral Kubernetes cluster
-        uses: helm/kind-action@v1.15.2
+        uses: helm/kind-action@v1.15.1
 
       - name: Publish NativeAOT smoke application
         run: >-
-          dotnet publish tests/Helm.NET.Tests.E2E.AOT/Helm.NET.Tests.E2E.AOT.csproj
+          dotnet publish tests/Helm.NET.AotSmoke/Helm.NET.AotSmoke.csproj
           --configuration Release
           --framework ${{ matrix.framework }}
           --runtime linux-x64
@@ -106,6 +106,4 @@ jobs:
           --output aot-kubernetes-publish-${{ matrix.framework }}
 
       - name: Smoke test Helm client operations
-        run: ./aot-kubernetes-publish-${{ matrix.framework }}/Helm.NET.Tests.E2E.AOT
-        env:
-          HELM_TEST_CLUSTER: true
+        run: ./aot-kubernetes-publish-${{ matrix.framework }}/Helm.NET.AotSmoke --cluster

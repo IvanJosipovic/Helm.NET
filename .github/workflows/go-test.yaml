@@ -6,10 +6,10 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.Tests.E2E.AOT/**
-      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.AotSmoke/**
       - tests/Helm.NET.Tests.E2E/**
-      - tests/Helm.NET.Tests/**
+      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.Tests.E2E.AOT/**
       - Helm.NET.slnx
       - .github/workflows/go-test.yaml
       - .github/workflows/aot-smoke.yaml
@@ -23,10 +23,10 @@ on:
     paths:
       - native/helm-shim/**
       - src/Helm.NET/**
-      - tests/Helm.NET.Tests.E2E.AOT/**
-      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.AotSmoke/**
       - tests/Helm.NET.Tests.E2E/**
-      - tests/Helm.NET.Tests/**
+      - tests/Helm.NET.Tests.E2E.Shared/**
+      - tests/Helm.NET.Tests.E2E.AOT/**
       - Helm.NET.slnx
       - .github/workflows/go-test.yaml
       - .github/workflows/aot-smoke.yaml
@@ -50,7 +50,11 @@ jobs:
         env:
           CGO_ENABLED: 1
           HELM_SHIM_TEST_CLUSTER: "true"
-        run: go test -coverprofile=coverage.txt ./...
+        run: |
+          go test -tags=helmshimtest -coverprofile=coverage.raw.txt ./...
+          # Keep the test-only cgo adapter out of the production coverage denominator.
+          grep -v 'exports_test_support.go:' coverage.raw.txt > coverage.txt
+          rm coverage.raw.txt
 
       - name: Upload Go coverage to Codecov
         uses: codecov/codecov-action@v7
@@ -59,15 +63,23 @@ jobs:
           flags: go
           fail_ci_if_error: true
 
+  managed-kind-e2e:
+    name: Managed public API E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
           cache: false
 
-      - name: Run managed Kind E2E scenarios
+      - uses: helm/kind-action@v1.15.2
+
+      - name: Run managed Helm scenarios
         env:
           HELM_TEST_CLUSTER: "true"
-        run: dotnet test --project "${{ github.workspace }}/tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj"
+        run: dotnet test --project tests/Helm.NET.Tests.E2E/Helm.NET.Tests.E2E.csproj
 
   native-aot:
     name: NativeAOT smoke tests

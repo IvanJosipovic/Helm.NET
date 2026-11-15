@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Helm.NET;
 
@@ -24,7 +23,7 @@ internal sealed record NativeHelmRequest(
     string? RegistryConfig = null,
     string? HelmDriver = null,
     string? RepositoryName = null,
-    [property: JsonPropertyName("repositoryUrl")] string? RepositoryURL = null,
+    string? RepositoryURL = null,
     string? RepositoryUsername = null,
     string? RepositoryPassword = null,
     string? Version = null,
@@ -86,7 +85,14 @@ internal sealed record NativeHelmRequest(
     bool SkipTests = false,
     bool IsUpgrade = false);
 
-internal sealed class NativeHelmAck { }
+internal sealed record NativeHelmResponse(
+    string? Error = null,
+    string? Text = null,
+    JsonElement? Values = null,
+    NativeHelmRelease? Release = null,
+    NativeHelmRelease[]? Releases = null,
+    HelmRepository[]? Repositories = null,
+    HelmChartSearchResult[]? ChartSearchResults = null);
 
 internal sealed class NativeHelmRelease
 {
@@ -96,19 +102,20 @@ internal sealed class NativeHelmRelease
     public required DateTimeOffset Updated { get; init; }
     public string Status { get; init; } = string.Empty;
     public string Chart { get; init; } = string.Empty;
-    [JsonPropertyName("app_version")] public string AppVersion { get; init; } = string.Empty;
+    public string AppVersion { get; init; } = string.Empty;
     public string ChartName { get; init; } = string.Empty;
     public string ChartVersion { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string Notes { get; init; } = string.Empty;
     public JsonElement? Resources { get; init; }
     public NativeHelmHook[] Hooks { get; init; } = [];
+
     public HelmRelease ToHelmRelease() => new(Name, Namespace, Revision, Updated, Status, Chart, AppVersion, ChartName, ChartVersion)
     {
         Description = Description,
         Notes = Notes,
         Resources = Resources,
-        Hooks = Hooks?.Select(hook => hook.ToHelmReleaseHook()).ToArray() ?? []
+        Hooks = Hooks.Select(static hook => hook.ToHelmReleaseHook()).ToArray()
     };
 }
 
@@ -119,15 +126,18 @@ internal sealed class NativeHelmHook
     public string Path { get; init; } = string.Empty;
     public string Manifest { get; init; } = string.Empty;
     public string[] Events { get; init; } = [];
-    [JsonPropertyName("last_run")] public NativeHelmHookExecution LastRun { get; init; } = new();
+    public NativeHelmHookExecution LastRun { get; init; } = new();
     public int Weight { get; init; }
-    [JsonPropertyName("delete_policies")] public string[] DeletePolicies { get; init; } = [];
-    public HelmReleaseHook ToHelmReleaseHook() => new(Name, Kind, Path, Manifest, Events, LastRun.StartedAt, LastRun.CompletedAt, LastRun.Phase, Weight, DeletePolicies);
+    public string[] DeletePolicies { get; init; } = [];
+
+    public HelmReleaseHook ToHelmReleaseHook() => new(
+        Name, Kind, Path, Manifest, Events, LastRun.StartedAt, LastRun.CompletedAt,
+        LastRun.Phase, Weight, DeletePolicies);
 }
 
 internal sealed class NativeHelmHookExecution
 {
-    [JsonPropertyName("started_at")] public DateTimeOffset? StartedAt { get; init; }
-    [JsonPropertyName("completed_at")] public DateTimeOffset? CompletedAt { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public DateTimeOffset? CompletedAt { get; init; }
     public string Phase { get; init; } = string.Empty;
 }

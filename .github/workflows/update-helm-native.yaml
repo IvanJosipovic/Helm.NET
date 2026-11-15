@@ -161,8 +161,8 @@ jobs:
           mkdir -p "$(dirname "$output")"
           go build -buildmode=c-shared -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o "$output" .
           test -s "$header"
-          grep -Fq 'HelmExecuteJSON' "$header"
-          grep -Fq 'HelmFree' "$header"
+          grep -Fq 'HelmExecuteV1' "$header"
+          grep -Fq 'HelmFreeResponseV1' "$header"
           rm -f "$header"
 
       - uses: actions/upload-artifact@v7
@@ -230,7 +230,7 @@ jobs:
           body: |
             Updates the pinned Helm Go module and rebuilds the native C-shared library for all supported runtime identifiers.
 
-            The workflow runs the Go shim tests and verifies the exported `HelmExecuteJSON` and `HelmFree` symbols before opening this pull request.
+            The workflow runs the Go shim tests and verifies the exported `HelmExecuteV1` and `HelmFreeResponseV1` symbols before opening this pull request.
           add-paths: |
             native/helm-shim/go.mod
             native/helm-shim/go.sum
