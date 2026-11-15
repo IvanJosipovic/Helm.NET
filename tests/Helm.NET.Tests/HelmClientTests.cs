@@ -14,10 +14,13 @@ public sealed class HelmClientTests
     [Fact]
     public void ExistingInterfaceImplementersReceiveDefaultsForNewOperations()
     {
-        IHelmClient client = new LegacyHelmClient();
+        var legacy = new LegacyHelmClient();
+        IHelmClient client = legacy;
 
-        client.ListReleases().ShouldBeEmpty();
-        Should.Throw<NotSupportedException>(() => client.List());
+        client.ListReleases().ShouldBe([Release()]);
+        client.ListReleases(allNamespaces: true, filter: "^legacy$").ShouldBe([Release()]);
+        legacy.LastAllNamespaces.ShouldBeTrue();
+        legacy.LastFilter.ShouldBe("^legacy$");
     }
 
     [Fact]
@@ -291,6 +294,7 @@ public sealed class HelmClientTests
         captured.ReleaseName.ShouldBe("web");
         captured.Revision.ShouldBe(2);
         captured.Wait.ShouldBeTrue();
+        captured.HistoryMax.ShouldBe(10);
     }
 
     [Fact]
@@ -302,6 +306,7 @@ public sealed class HelmClientTests
 
         request().Revision.ShouldBe(0);
         request().Wait.ShouldBeFalse();
+        request().HistoryMax.ShouldBe(10);
     }
 
     [Fact]
@@ -313,6 +318,7 @@ public sealed class HelmClientTests
 
         request().Revision.ShouldBe(4);
         request().Wait.ShouldBeFalse();
+        request().HistoryMax.ShouldBe(10);
     }
 
     [Fact]
@@ -428,6 +434,7 @@ public sealed class HelmClientTests
 
         request().RepositoryUsername.ShouldBeNull();
         request().RepositoryPassword.ShouldBeNull();
+        request().ForceUpdate.ShouldBeTrue();
     }
 
     [Fact]
@@ -541,22 +548,15 @@ public sealed class HelmClientTests
 
     private sealed class LegacyHelmClient : IHelmClient
     {
-        public IReadOnlyList<HelmRelease> ListReleases() => [];
-        public IReadOnlyList<HelmRelease> ListReleases(bool allNamespaces, string? filter = null) => [];
-        public string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null) => string.Empty;
-        public HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null) => throw new NotSupportedException();
-        public HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null) => throw new NotSupportedException();
-        public HelmRelease Status(string releaseName) => throw new NotSupportedException();
-        public IReadOnlyList<HelmRelease> History(string releaseName) => [];
-        public void Rollback(string releaseName, int revision = 0) { }
-        public void Rollback(string releaseName, int revision, bool wait) { }
-        public void Uninstall(string releaseName) { }
-        public void Uninstall(string releaseName, bool wait) { }
-        public JsonElement GetValues(string releaseName) => ParseJsonElement("{}");
-        public IReadOnlyList<HelmRepository> ListRepositories() => [];
-        public void AddRepository(string name, string url, string? username = null, string? password = null) { }
-        public void RemoveRepository(string name) { }
-        public void UpdateRepositories() { }
+        public bool LastAllNamespaces { get; private set; }
+        public string? LastFilter { get; private set; }
+
+        public IReadOnlyList<HelmRelease> List(string? namespaceName = null, bool allNamespaces = false, string? filter = null, int max = 256, int offset = 0, string? selector = null, bool deployed = false, bool failed = false, bool pending = false, bool superseded = false, bool uninstalled = false, bool uninstalling = false, bool dateSort = false, bool reverse = false)
+        {
+            LastAllNamespaces = allNamespaces;
+            LastFilter = filter;
+            return [Release()];
+        }
     }
 
     private sealed class FakeNativeApi(Func<NativeHelmRequest, NativeHelmResponse> execute) : IHelmNativeApi

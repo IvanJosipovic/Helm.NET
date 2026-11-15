@@ -97,11 +97,11 @@ public sealed class HelmClient : IHelmClient
 
     /// <summary>Rolls a release back to the specified revision, or its previous revision when zero.</summary>
     public void Rollback(string releaseName, int revision = 0) =>
-        Rollback(releaseName, revision, wait: false);
+        Rollback(releaseName, revision, namespaceName: null, wait: false);
 
     /// <summary>Rolls a release back and optionally waits for its resources to become ready.</summary>
     public void Rollback(string releaseName, int revision, bool wait) =>
-        _ = Invoke(new NativeHelmRequest("rollback", releaseName, Wait: wait, Revision: revision));
+        Rollback(releaseName, revision, namespaceName: null, wait: wait);
 
     /// <summary>Rolls a release back with Helm CLI-compatible options.</summary>
     public void Rollback(string releaseName, int revision, string? namespaceName = null, bool wait = false, string? waitStrategy = null, TimeSpan? timeout = null, bool waitForJobs = false, bool disableHooks = false, string? dryRun = null, bool forceReplace = false, bool forceConflicts = false, bool cleanupOnFail = false, int historyMax = 10, string? description = null) =>
@@ -160,7 +160,7 @@ public sealed class HelmClient : IHelmClient
 
     /// <summary>Adds or updates a chart repository.</summary>
     public void AddRepository(string name, string url, string? username = null, string? password = null) =>
-        _ = Invoke(new NativeHelmRequest("repoAdd", RepositoryName: name, RepositoryURL: url, RepositoryUsername: username, RepositoryPassword: password));
+        _ = Invoke(new NativeHelmRequest("repoAdd", RepositoryName: name, RepositoryURL: url, RepositoryUsername: username, RepositoryPassword: password, ForceUpdate: true));
 
     /// <summary>Removes a configured chart repository.</summary>
     public void RemoveRepository(string name) =>

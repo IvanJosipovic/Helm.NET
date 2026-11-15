@@ -167,9 +167,15 @@ sealed class LocalHelmRepository : IDisposable
     public void Dispose()
     {
         _stopping = true;
-        _listener.Stop();
-        _server.GetAwaiter().GetResult();
-        _listener.Close();
+        try
+        {
+            _listener.Stop();
+            _server.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            _listener.Close();
+        }
     }
 
     private void Serve()
@@ -182,6 +188,10 @@ sealed class LocalHelmRepository : IDisposable
                 context = _listener.GetContext();
             }
             catch (HttpListenerException) when (_stopping)
+            {
+                return;
+            }
+            catch (InvalidOperationException) when (_stopping)
             {
                 return;
             }

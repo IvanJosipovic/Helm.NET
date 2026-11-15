@@ -27,6 +27,15 @@ func HelmExecuteV1(input *C.HelmRequest) (response *C.HelmResponse) {
 		}
 	}()
 
+	if input == nil {
+		response.error = C.CString("native request is null")
+		return response
+	}
+	if err := validateABIVersion(uint32(input.abi_version)); err != nil {
+		response.error = C.CString(err.Error())
+		return response
+	}
+
 	inputRequest, err := requestFromC(input)
 	if err != nil {
 		response.error = C.CString(err.Error())

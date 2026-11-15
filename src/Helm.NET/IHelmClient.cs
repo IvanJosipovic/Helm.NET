@@ -23,13 +23,13 @@ public interface IHelmClient
     IReadOnlyList<HelmRelease> List(string? namespaceName = null, bool allNamespaces = false, string? filter = null, int max = 256, int offset = 0, string? selector = null, bool deployed = false, bool failed = false, bool pending = false, bool superseded = false, bool uninstalled = false, bool uninstalling = false, bool dateSort = false, bool reverse = false) => throw new NotSupportedException();
 
     /// <summary>Lists releases in the configured namespace.</summary>
-    IReadOnlyList<HelmRelease> ListReleases();
+    IReadOnlyList<HelmRelease> ListReleases() => List();
 
     /// <summary>Lists releases and optionally searches all namespaces.</summary>
-    IReadOnlyList<HelmRelease> ListReleases(bool allNamespaces, string? filter = null);
+    IReadOnlyList<HelmRelease> ListReleases(bool allNamespaces, string? filter = null) => List(namespaceName: null, allNamespaces: allNamespaces, filter: filter);
 
     /// <summary>Renders a chart locally and returns the rendered manifest.</summary>
-    string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null);
+    string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null) => Template(releaseName, chart, namespaceName: null, values: valuesFiles, setValues: values);
 
     /// <summary>Renders a chart with Helm CLI-compatible template options.</summary>
     string Template(string name, string chart, string? namespaceName, IEnumerable<string>? values = null, JsonElement? setValues = null, string? version = null, IEnumerable<string>? apiVersions = null, string? kubeVersion = null, bool includeCrds = false, bool skipTests = false, bool dependencyUpdate = false, bool isUpgrade = false, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false) => throw new NotSupportedException();
@@ -41,13 +41,13 @@ public interface IHelmClient
     string GetManifest(string releaseName, string? namespaceName = null, int revision = 0) => throw new NotSupportedException();
 
     /// <summary>Installs a chart and returns the created release.</summary>
-    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null) => Install(releaseName, chart, namespaceName: null, values: valuesFiles, setValues: values, createNamespace: createNamespace, wait: wait, timeout: timeout);
 
     /// <summary>Installs a chart with Helm CLI-compatible options.</summary>
     HelmRelease Install(string name, string chart, string? namespaceName, IEnumerable<string>? values = null, JsonElement? setValues = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool dependencyUpdate = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, string? waitStrategy = null, bool replace = false, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false) => throw new NotSupportedException();
 
     /// <summary>Upgrades an installed release.</summary>
-    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null) => Upgrade(releaseName, chart, namespaceName: null, values: valuesFiles, setValues: values, install: installIfMissing, createNamespace: createNamespace, wait: wait, timeout: timeout);
 
     /// <summary>Upgrades a release with Helm CLI-compatible options.</summary>
     HelmRelease Upgrade(string release, string chart, string? namespaceName, IEnumerable<string>? values = null, JsonElement? setValues = null, bool install = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null, string? version = null, string? dryRun = null, bool hideSecret = false, bool disableHooks = false, string? postRenderer = null, IEnumerable<string>? postRendererArgs = null, bool waitForJobs = false, bool rollbackOnFailure = false, bool resetValues = false, bool reuseValues = false, bool resetThenReuseValues = false, bool skipCrds = false, bool devel = false, bool skipSchemaValidation = false, bool disableOpenApiValidation = false, string? description = null, bool dependencyUpdate = false, string? waitStrategy = null, bool forceReplace = false, bool forceConflicts = false, bool takeOwnership = false, bool cleanupOnFail = false, string? repo = null, string? username = null, string? password = null, string? caFile = null, string? certFile = null, string? keyFile = null, bool insecureSkipTlsVerify = false, bool passCredentials = false, bool plainHttp = false) => throw new NotSupportedException();
@@ -59,7 +59,7 @@ public interface IHelmClient
     HelmRelease Status(string releaseName, string? namespaceName = null, int revision = 0) => throw new NotSupportedException();
 
     /// <summary>Gets the current release status.</summary>
-    HelmRelease Status(string releaseName);
+    HelmRelease Status(string releaseName) => Status(releaseName, namespaceName: null);
 
     /// <summary>Gets release revision history.</summary>
     /// <param name="releaseName">Release name.</param>
@@ -68,34 +68,34 @@ public interface IHelmClient
     IReadOnlyList<HelmRelease> History(string releaseName, string? namespaceName = null, int max = 256) => throw new NotSupportedException();
 
     /// <summary>Gets release revision history.</summary>
-    IReadOnlyList<HelmRelease> History(string releaseName);
+    IReadOnlyList<HelmRelease> History(string releaseName) => History(releaseName, namespaceName: null, max: 256);
 
     /// <summary>Rolls a release back to the specified revision, or its previous revision when zero.</summary>
     void Rollback(string releaseName, int revision, string? namespaceName = null, bool wait = false, string? waitStrategy = null, TimeSpan? timeout = null, bool waitForJobs = false, bool disableHooks = false, string? dryRun = null, bool forceReplace = false, bool forceConflicts = false, bool cleanupOnFail = false, int historyMax = 10, string? description = null) => throw new NotSupportedException();
 
     /// <summary>Rolls a release back to the specified revision, or its previous revision when zero.</summary>
-    void Rollback(string releaseName, int revision = 0);
+    void Rollback(string releaseName, int revision = 0) => Rollback(releaseName, revision, namespaceName: null, wait: false, historyMax: 10);
 
     /// <summary>Rolls a release back and optionally waits for its resources to become ready.</summary>
-    void Rollback(string releaseName, int revision, bool wait);
+    void Rollback(string releaseName, int revision, bool wait) => Rollback(releaseName, revision, namespaceName: null, wait: wait, historyMax: 10);
 
     /// <summary>Uninstalls a release.</summary>
     void Uninstall(string releaseName, string? namespaceName = null, bool wait = false, string? waitStrategy = null, TimeSpan? timeout = null, bool disableHooks = false, bool dryRun = false, bool ignoreNotFound = false, bool keepHistory = false, string cascade = "background", string? description = null) => throw new NotSupportedException();
 
     /// <summary>Uninstalls a release.</summary>
-    void Uninstall(string releaseName);
+    void Uninstall(string releaseName) => Uninstall(releaseName, namespaceName: null);
 
     /// <summary>Uninstalls a release and optionally waits for its resources to be deleted.</summary>
-    void Uninstall(string releaseName, bool wait);
+    void Uninstall(string releaseName, bool wait) => Uninstall(releaseName, namespaceName: null, wait: wait);
 
     /// <summary>Gets the values applied to a release as a JSON element.</summary>
-    JsonElement GetValues(string releaseName);
+    JsonElement GetValues(string releaseName) => GetValues(releaseName, namespaceName: null, revision: 0, all: false);
 
     /// <summary>Gets release values as a JSON object.</summary>
     JsonElement GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false) => throw new NotSupportedException();
 
     /// <summary>Lists configured chart repositories.</summary>
-    IReadOnlyList<HelmRepository> ListRepositories();
+    IReadOnlyList<HelmRepository> ListRepositories() => RepoList();
 
     /// <summary>Lists configured chart repositories.</summary>
     IReadOnlyList<HelmRepository> RepoList() => throw new NotSupportedException();
@@ -107,17 +107,17 @@ public interface IHelmClient
     void RepoAdd(string name, string url, string? username = null, string? password = null, bool forceUpdate = false) => throw new NotSupportedException();
 
     /// <summary>Adds or updates a chart repository.</summary>
-    void AddRepository(string name, string url, string? username = null, string? password = null);
+    void AddRepository(string name, string url, string? username = null, string? password = null) => RepoAdd(name, url, username, password, forceUpdate: true);
 
     /// <summary>Removes a configured chart repository.</summary>
     void RepoRemove(string repository) => throw new NotSupportedException();
 
     /// <summary>Removes a configured chart repository.</summary>
-    void RemoveRepository(string name);
+    void RemoveRepository(string name) => RepoRemove(name);
 
     /// <summary>Downloads updated indexes for configured chart repositories.</summary>
     void RepoUpdate() => throw new NotSupportedException();
 
     /// <summary>Downloads updated indexes for configured chart repositories.</summary>
-    void UpdateRepositories();
+    void UpdateRepositories() => RepoUpdate();
 }

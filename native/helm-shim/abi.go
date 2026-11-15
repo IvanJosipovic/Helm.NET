@@ -159,9 +159,16 @@ const (
 	nativeResultChartSearchResults
 )
 
+func validateABIVersion(version uint32) error {
+	if version != nativeABIVersion {
+		return fmt.Errorf("unsupported Helm native ABI version: %d", version)
+	}
+	return nil
+}
+
 func requestFromNative(input nativeRequest) (request, error) {
-	if input.ABIVersion != nativeABIVersion {
-		return request{}, fmt.Errorf("unsupported Helm native ABI version: %d", input.ABIVersion)
+	if err := validateABIVersion(input.ABIVersion); err != nil {
+		return request{}, err
 	}
 	if input.Operation == "" {
 		return request{}, fmt.Errorf("operation is required")
