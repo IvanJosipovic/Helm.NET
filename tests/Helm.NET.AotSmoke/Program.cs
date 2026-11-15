@@ -144,6 +144,7 @@ sealed class LocalHelmRepository : IDisposable
     private const string Index = "apiVersion: v1\nentries: {}\n";
     private readonly HttpListener _listener = new();
     private readonly Task _server;
+    private volatile bool _stopping;
 
     public LocalHelmRepository()
     {
@@ -165,6 +166,7 @@ sealed class LocalHelmRepository : IDisposable
 
     public void Dispose()
     {
+        _stopping = true;
         _listener.Stop();
         _server.GetAwaiter().GetResult();
         _listener.Close();
@@ -179,7 +181,7 @@ sealed class LocalHelmRepository : IDisposable
             {
                 context = _listener.GetContext();
             }
-            catch (HttpListenerException) when (!_listener.IsListening)
+            catch (HttpListenerException) when (_stopping)
             {
                 return;
             }
