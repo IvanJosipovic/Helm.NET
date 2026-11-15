@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,58 +23,32 @@ import (
 )
 
 type request struct {
-	Operation           string         `json:"operation"`
-	Kubeconfig          string         `json:"kubeconfig,omitempty"`
-	KubeContext         string         `json:"kubeContext,omitempty"`
-	Namespace           string         `json:"namespace,omitempty"`
-	Chart               string         `json:"chart,omitempty"`
-	ReleaseName         string         `json:"releaseName,omitempty"`
-	ValuesFiles         []string       `json:"valuesFiles,omitempty"`
-	Values              map[string]any `json:"values,omitempty"`
-	Wait                bool           `json:"wait,omitempty"`
-	CreateNamespace     bool           `json:"createNamespace,omitempty"`
-	TimeoutMilliseconds int64          `json:"timeoutMilliseconds,omitempty"`
-	AllNamespaces       bool           `json:"allNamespaces,omitempty"`
-	Filter              string         `json:"filter,omitempty"`
-	Revision            int            `json:"revision,omitempty"`
-	InstallIfMissing    bool           `json:"installIfMissing,omitempty"`
-	RepositoryConfig    string         `json:"repositoryConfig,omitempty"`
-	RepositoryCache     string         `json:"repositoryCache,omitempty"`
-	RegistryConfig      string         `json:"registryConfig,omitempty"`
-	HelmDriver          string         `json:"helmDriver,omitempty"`
-	RepositoryName      string         `json:"repositoryName,omitempty"`
-	RepositoryURL       string         `json:"repositoryUrl,omitempty"`
-	RepositoryUsername  string         `json:"repositoryUsername,omitempty"`
-	RepositoryPassword  string         `json:"repositoryPassword,omitempty"`
-}
-
-type result struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
+	Operation           string
+	Kubeconfig          string
+	KubeContext         string
+	Namespace           string
+	Chart               string
+	ReleaseName         string
+	ValuesFiles         []string
+	Values              map[string]any
+	Wait                bool
+	CreateNamespace     bool
+	TimeoutMilliseconds int64
+	AllNamespaces       bool
+	Filter              string
+	Revision            int
+	InstallIfMissing    bool
+	RepositoryConfig    string
+	RepositoryCache     string
+	RegistryConfig      string
+	HelmDriver          string
+	RepositoryName      string
+	RepositoryURL       string
+	RepositoryUsername  string
+	RepositoryPassword  string
 }
 
 var repositoryFileMu sync.Mutex
-
-func handleJSON(input []byte) (encoded []byte) {
-	response := result{}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			response = result{Error: fmt.Sprintf("Helm native call panicked: %v", recovered)}
-			encoded, _ = json.Marshal(response)
-		}
-	}()
-	var req request
-	if err := json.Unmarshal(input, &req); err != nil {
-		response.Error = err.Error()
-	} else {
-		response.Data, response.Error = execute(req)
-	}
-	encoded, err := json.Marshal(response)
-	if err != nil {
-		return []byte(`{"error":"failed to encode Helm response"}`)
-	}
-	return encoded
-}
 
 func execute(req request) (any, string) {
 	switch req.Operation {

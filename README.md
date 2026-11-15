@@ -40,6 +40,6 @@ foreach (var release in releases)
     Console.WriteLine($"{release.Name}: {release.Status} ({release.Chart})");
 ```
 
-The action API supports `ListReleases`, `Template`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
+The action API supports `ListReleases`, `Template`, `Install`, `Upgrade`, `Uninstall`, `Status`, `History`, `Rollback`, `GetValues`, and chart repository operations. Chart values are passed and returned as `JsonElement`, preserving their full JSON shape without dictionary wrappers. Configure kubeconfig, context, namespace, repository paths, registry config, and the release storage driver with `HelmClientOptions`.
 
 The Go shim source and pinned Helm dependency are in `native/helm-shim`. Native libraries are packaged under `runtimes/<rid>/native`.

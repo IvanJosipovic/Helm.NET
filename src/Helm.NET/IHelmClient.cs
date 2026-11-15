@@ -12,13 +12,13 @@ public interface IHelmClient
     IReadOnlyList<HelmRelease> ListReleases(bool allNamespaces, string? filter = null);
 
     /// <summary>Renders a chart locally and returns the rendered manifest.</summary>
-    string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null);
+    string Template(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null);
 
     /// <summary>Installs a chart and returns the created release.</summary>
-    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    HelmRelease Install(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
 
     /// <summary>Upgrades an installed release.</summary>
-    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, IReadOnlyDictionary<string, object?>? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
+    HelmRelease Upgrade(string releaseName, string chart, IEnumerable<string>? valuesFiles = null, JsonElement? values = null, bool installIfMissing = false, bool createNamespace = false, bool wait = false, TimeSpan? timeout = null);
 
     /// <summary>Gets the current release status.</summary>
     HelmRelease Status(string releaseName);
@@ -38,8 +38,8 @@ public interface IHelmClient
     /// <summary>Uninstalls a release and optionally waits for its resources to be deleted.</summary>
     void Uninstall(string releaseName, bool wait);
 
-    /// <summary>Gets the values applied to a release.</summary>
-    IReadOnlyDictionary<string, JsonElement> GetValues(string releaseName);
+    /// <summary>Gets the values applied to a release as a JSON element.</summary>
+    JsonElement GetValues(string releaseName);
 
     /// <summary>Lists configured chart repositories.</summary>
     IReadOnlyList<HelmRepository> ListRepositories();

@@ -45,13 +45,13 @@ static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
         releaseName,
         chartDirectory,
         valuesFiles: [Path.Combine(chartDirectory, "smoke-values.yaml")],
-        values: new Dictionary<string, object?> { ["setting"] = "rendered" });
+        values: CreateValues("rendered"));
     Require(manifest.Contains("setting: \"rendered\"", StringComparison.Ordinal), "Template did not apply its supplied values.");
 
     var installed = helm.Install(
         releaseName,
         chartDirectory,
-        values: new Dictionary<string, object?> { ["setting"] = "installed" },
+        values: CreateValues("installed"),
         createNamespace: true,
         wait: true,
         timeout: TimeSpan.FromMinutes(1));
@@ -64,7 +64,7 @@ static void RunClusterLifecycle(HelmClient helm, string chartDirectory)
     var upgraded = helm.Upgrade(
         releaseName,
         chartDirectory,
-        values: new Dictionary<string, object?> { ["setting"] = "upgraded" },
+        values: CreateValues("upgraded"),
         installIfMissing: true,
         wait: true);
     Require(upgraded.Status == "deployed" && upgraded.Revision == "2", $"Unexpected upgrade result: {upgraded}");
@@ -105,9 +105,15 @@ static void RunRepositoryOperations(string chartDirectory)
     Require(!helm.ListRepositories().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
 }
 
-static void RequireValue(IReadOnlyDictionary<string, JsonElement> values, string expected)
+static JsonElement CreateValues(string setting)
 {
-    Require(values.TryGetValue("setting", out var setting) && setting.GetString() == expected, $"Unexpected release values: {values}");
+    using var document = JsonDocument.Parse($"{{\"setting\":\"{setting}\"}}");
+    return document.RootElement.Clone();
+}
+
+static void RequireValue(JsonElement values, string expected)
+{
+    Require(values.GetProperty("setting").GetString() == expected, $"Unexpected release values: {values}");
 }
 
 static void Require(bool condition, string message)

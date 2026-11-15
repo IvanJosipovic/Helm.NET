@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Helm.NET;
 
@@ -8,7 +7,7 @@ internal sealed record NativeHelmRequest(
     string? ReleaseName = null,
     string? Chart = null,
     string[]? ValuesFiles = null,
-    IReadOnlyDictionary<string, object?>? Values = null,
+    JsonElement? Values = null,
     bool CreateNamespace = false,
     bool Wait = false,
     long TimeoutMilliseconds = 0,
@@ -24,11 +23,17 @@ internal sealed record NativeHelmRequest(
     string? RegistryConfig = null,
     string? HelmDriver = null,
     string? RepositoryName = null,
-    [property: JsonPropertyName("repositoryUrl")] string? RepositoryURL = null,
+    string? RepositoryURL = null,
     string? RepositoryUsername = null,
     string? RepositoryPassword = null);
 
-internal sealed class NativeHelmAck { }
+internal sealed record NativeHelmResponse(
+    string? Error = null,
+    string? Text = null,
+    JsonElement? Values = null,
+    NativeHelmRelease? Release = null,
+    NativeHelmRelease[]? Releases = null,
+    HelmRepository[]? Repositories = null);
 
 internal sealed class NativeHelmRelease
 {
@@ -38,8 +43,7 @@ internal sealed class NativeHelmRelease
     public string Updated { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public string Chart { get; init; } = string.Empty;
-    [JsonPropertyName("app_version")] public string AppVersion { get; init; } = string.Empty;
-    public string Manifest { get; init; } = string.Empty;
+    public string AppVersion { get; init; } = string.Empty;
 
     public HelmRelease ToHelmRelease() => new(Name, Namespace, Revision, Updated, Status, Chart, AppVersion);
 }
