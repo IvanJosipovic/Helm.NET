@@ -145,6 +145,7 @@ public static partial class HelmClientScenarios
         var installed = helm.Install(
             releaseName,
             chartDirectory,
+            namespaceName: null,
             setValues: ParseJsonElement("""{"setting":"installed"}"""),
             createNamespace: true,
             wait: true,
@@ -163,6 +164,7 @@ public static partial class HelmClientScenarios
         var upgraded = helm.Upgrade(
             releaseName,
             chartDirectory,
+            namespaceName: null,
             setValues: ParseJsonElement("""{"setting":"upgraded"}"""),
             install: true,
             wait: true,
@@ -180,7 +182,7 @@ public static partial class HelmClientScenarios
         RequireValue(helm.GetValues(releaseName), "upgraded");
 
         const string secondaryRelease = "aot-smoke-nowait";
-        helm.Upgrade(secondaryRelease, chartDirectory, install: true, version: "1.0.0");
+        helm.Upgrade(secondaryRelease, chartDirectory, namespaceName: null, install: true, version: "1.0.0");
         Require(helm.List().Any(release => release.Name == secondaryRelease), "Upgrade with install-if-missing did not create a release.");
         helm.Uninstall(secondaryRelease, dryRun: true, cascade: "foreground");
         Require(helm.List().Any(release => release.Name == secondaryRelease), "Uninstall dry-run changed the release.");

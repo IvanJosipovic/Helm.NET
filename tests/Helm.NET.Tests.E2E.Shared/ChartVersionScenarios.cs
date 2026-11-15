@@ -40,7 +40,7 @@ public static partial class HelmClientScenarios
             var values = ParseJsonElement("""{"setting":"inline","enabled":true,"replicas":2}""");
             const string chartReference = "versions/versioned";
             string Preview(string name, string? version) =>
-                helm.Template(name, chartReference, values: [valuesFile], setValues: values, version: version);
+                helm.Template(name, chartReference, namespaceName: null, values: [valuesFile], setValues: values, version: version);
 
             foreach (var version in VersionedChartRepository.Versions)
                 CheckVersionManifest(Preview("preview", version), version);
@@ -48,20 +48,20 @@ public static partial class HelmClientScenarios
             CheckVersionManifest(Preview("preview", ">=1.0.0 <3.0.0"), "2.0.0");
             var defaults = helm.Template("defaults", chartReference);
             Require(defaults.Contains("version: \"3.0.0\"", StringComparison.Ordinal) && defaults.Contains("setting: \"default\"", StringComparison.Ordinal), "Omitted template options did not preserve defaults.");
-            var fileOnly = helm.Template("file-only", chartReference, values: [valuesFile], version: "1.0.0");
+            var fileOnly = helm.Template("file-only", chartReference, namespaceName: null, values: [valuesFile], version: "1.0.0");
             Require(fileOnly.Contains("version: \"1.0.0\"", StringComparison.Ordinal) && fileOnly.Contains("setting: \"from-file\"", StringComparison.Ordinal), "Versioned template did not apply file-only values.");
 
             // Local archives and direct URLs are already resolved: Helm ignores version selection.
             var archive = Path.Combine(directory, "versioned-1.0.0.tgz");
             File.WriteAllBytes(archive, repository.OlderChart);
-            CheckVersionManifest(helm.Template("archive", archive, values: [valuesFile], setValues: values, version: "99.0.0"), "1.0.0");
-            CheckVersionManifest(helm.Template("url", $"{repository.Url}/versioned-1.0.0.tgz", values: [valuesFile], setValues: values, version: "99.0.0"), "1.0.0");
+            CheckVersionManifest(helm.Template("archive", archive, namespaceName: null, values: [valuesFile], setValues: values, version: "99.0.0"), "1.0.0");
+            CheckVersionManifest(helm.Template("url", $"{repository.Url}/versioned-1.0.0.tgz", namespaceName: null, values: [valuesFile], setValues: values, version: "99.0.0"), "1.0.0");
 
             foreach (var version in new[] { "99.0.0", "not-a-version" })
             {
                 RequireActionFailure(() => Preview("missing", version), version);
-                RequireActionFailure(() => helm.Install("missing", chartReference, version: version), version);
-                RequireActionFailure(() => helm.Upgrade("missing", chartReference, install: true, version: version), version);
+                RequireActionFailure(() => helm.Install("missing", chartReference, namespaceName: null, version: version), version);
+                RequireActionFailure(() => helm.Upgrade("missing", chartReference, namespaceName: null, install: true, version: version), version);
             }
 
             if (clusterLifecycle)
@@ -87,7 +87,7 @@ public static partial class HelmClientScenarios
         {
             HelmRelease Install(string name, string? version)
             {
-                var release = helm.Install(name, chart, values: [valuesFile], setValues: values, createNamespace: true, wait: true, timeout: TimeSpan.FromMinutes(1), version: version);
+                var release = helm.Install(name, chart, namespaceName: null, values: [valuesFile], setValues: values, createNamespace: true, wait: true, timeout: TimeSpan.FromMinutes(1), version: version);
                 installed.Add(name);
                 return release;
             }
@@ -104,19 +104,19 @@ public static partial class HelmClientScenarios
             }
 
             Check(Install("selected", "1.0.0"), "1.0.0", 1);
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, wait: true, timeout: TimeSpan.FromMinutes(1), version: "2.0.0"), "2.0.0", 2);
+            Check(helm.Upgrade("selected", chart, namespaceName: null, values: [valuesFile], setValues: values, wait: true, timeout: TimeSpan.FromMinutes(1), version: "2.0.0"), "2.0.0", 2);
             CheckVersionManifest(helm.GetManifest("selected", revision: 1), "1.0.0");
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values), "3.0.0", 3);
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: "1.0.0"), "1.0.0", 4);
-            Check(helm.Upgrade("selected", chart, values: [valuesFile], setValues: values, version: ">=1.0.0 <3.0.0"), "2.0.0", 5);
+            Check(helm.Upgrade("selected", chart, namespaceName: null, values: [valuesFile], setValues: values), "3.0.0", 3);
+            Check(helm.Upgrade("selected", chart, namespaceName: null, values: [valuesFile], setValues: values, version: "1.0.0"), "1.0.0", 4);
+            Check(helm.Upgrade("selected", chart, namespaceName: null, values: [valuesFile], setValues: values, version: ">=1.0.0 <3.0.0"), "2.0.0", 5);
             var history = helm.History("selected");
             Require(history.Count == 5 && history.Any(item => item.Revision == 2 && item.ChartVersion == "2.0.0"), "History lost chart version/revision metadata.");
             foreach (var version in new[] { "99.0.0", "not-a-version" })
-                RequireActionFailure(() => helm.Upgrade("selected", chart, version: version), version);
+                RequireActionFailure(() => helm.Upgrade("selected", chart, namespaceName: null, version: version), version);
             Require(helm.Status("selected").Revision == 5, "Failed version resolution changed the release.");
 
             Check(Install("latest", null), "3.0.0", 1);
-            var omitted = helm.Install("omitted", chart, values: [valuesFile], setValues: values, createNamespace: true);
+            var omitted = helm.Install("omitted", chart, namespaceName: null, values: [valuesFile], setValues: values, createNamespace: true);
             installed.Add("omitted");
             Check(omitted, "3.0.0", 1);
             foreach (var (name, version, expected) in new (string Name, string? Version, string Expected)[]
@@ -126,12 +126,12 @@ public static partial class HelmClientScenarios
                 ("missing-constraint", ">=1.0.0 <3.0.0", "2.0.0")
             })
             {
-                var release = helm.Upgrade(name, chart, values: [valuesFile], setValues: values, install: true, createNamespace: true, wait: true, timeout: TimeSpan.FromMinutes(1), version: version);
+                var release = helm.Upgrade(name, chart, namespaceName: null, values: [valuesFile], setValues: values, install: true, createNamespace: true, wait: true, timeout: TimeSpan.FromMinutes(1), version: version);
                 installed.Add(name);
                 Check(release, expected, 1);
             }
             Check(Install("constraint", ">=1.0.0 <3.0.0"), "2.0.0", 1);
-            var omittedMissing = helm.Upgrade("missing-omitted", chart, values: [valuesFile], setValues: values, install: true);
+            var omittedMissing = helm.Upgrade("missing-omitted", chart, namespaceName: null, values: [valuesFile], setValues: values, install: true);
             installed.Add("missing-omitted");
             Check(omittedMissing, "3.0.0", 1);
         }

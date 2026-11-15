@@ -39,7 +39,6 @@ try
             skipTests: true);
         Require(advancedManifest.Contains("setting: \"typed-abi\"", StringComparison.Ordinal), $"Advanced template options were not applied:\n{advancedManifest}");
         Require(helm.ShowValues(chartDirectory).Contains("setting: default", StringComparison.Ordinal), "ShowValues did not return the chart's default values.");
-        Require(helm.SearchRepo("no-match").Count == 0, "SearchRepo returned results for an empty local index.");
         RunRepositoryOperations(chartDirectory);
     }
 
@@ -118,6 +117,7 @@ static void RunRepositoryOperations(string chartDirectory)
     helm.RepoAdd("aot-smoke", repository.Url, username: "typed-abi", forceUpdate: true);
     Require(helm.RepoList().Any(item => item.Name == "aot-smoke"), "The force-updated chart repository is missing.");
     helm.RepoUpdate();
+    Require(helm.SearchRepo("no-match").Count == 0, "SearchRepo returned results for an empty local index.");
     helm.RepoRemove("aot-smoke");
     Require(!helm.RepoList().Any(item => item.Name == "aot-smoke"), "The removed chart repository is still listed.");
 }
