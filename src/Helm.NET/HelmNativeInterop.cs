@@ -13,14 +13,14 @@ internal interface IHelmNativeApi
 
 internal static partial class HelmNativeInterop
 {
-    private const uint AbiVersion = 1;
-    private const int ResultAck = 1;
-    private const int ResultText = 2;
-    private const int ResultJson = 3;
-    private const int ResultRelease = 4;
-    private const int ResultReleases = 5;
-    private const int ResultRepositories = 6;
-    private const int ResultChartSearchResults = 7;
+    internal const uint AbiVersion = 1;
+    internal const int ResultAck = 1;
+    internal const int ResultText = 2;
+    internal const int ResultJson = 3;
+    internal const int ResultRelease = 4;
+    internal const int ResultReleases = 5;
+    internal const int ResultRepositories = 6;
+    internal const int ResultChartSearchResults = 7;
 
     [Flags]
     private enum NativeRequestFlags : ulong
@@ -150,8 +150,22 @@ internal static partial class HelmNativeInterop
         return OperatingSystem.IsMacOS() ? "libhelmshim.dylib" : "libhelmshim.so";
     }
 
-    private sealed partial class NativeHelmApi : IHelmNativeApi
+    internal sealed partial class NativeHelmApi : IHelmNativeApi
     {
+        private readonly Func<nint, nint> _execute;
+        private readonly Action<nint> _freeResponse;
+
+        internal NativeHelmApi()
+            : this(NativeMethods.HelmExecuteV1, NativeMethods.HelmFreeResponseV1)
+        {
+        }
+
+        internal NativeHelmApi(Func<nint, nint> execute, Action<nint> freeResponse)
+        {
+            _execute = execute;
+            _freeResponse = freeResponse;
+        }
+
         public NativeHelmResponse Execute(NativeHelmRequest request)
         {
             using var input = new NativeRequestBuffer();
@@ -225,7 +239,7 @@ internal static partial class HelmNativeInterop
             try
             {
                 Marshal.StructureToPtr(nativeRequest, requestPointer, false);
-                var responsePointer = NativeMethods.HelmExecuteV1(requestPointer);
+                var responsePointer = _execute(requestPointer);
                 if (responsePointer == 0)
                     throw new InvalidOperationException("The Helm native library returned a null response.");
 
@@ -235,7 +249,7 @@ internal static partial class HelmNativeInterop
                 }
                 finally
                 {
-                    NativeMethods.HelmFreeResponseV1(responsePointer);
+                    _freeResponse(responsePointer);
                 }
             }
             finally
@@ -473,14 +487,14 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeStringArrayAbi
+    internal struct NativeStringArrayAbi
     {
         internal nint Items;
         internal nuint Length;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmRequestAbi
+    internal struct NativeHelmRequestAbi
     {
         internal uint AbiVersion;
         internal nint Operation;
@@ -510,7 +524,7 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmRequestOptionsAbi
+    internal struct NativeHelmRequestOptionsAbi
     {
         internal nint Version;
         internal nint SearchTerm;
@@ -535,7 +549,7 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmReleaseAbi
+    internal struct NativeHelmReleaseAbi
     {
         internal nint Name;
         internal nint Namespace;
@@ -553,7 +567,7 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmReleaseHookAbi
+    internal struct NativeHelmReleaseHookAbi
     {
         internal nint Name;
         internal nint Kind;
@@ -566,7 +580,7 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmHookExecutionAbi
+    internal struct NativeHelmHookExecutionAbi
     {
         internal nint StartedAt;
         internal nint CompletedAt;
@@ -574,14 +588,14 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmReleaseHookArrayAbi
+    internal struct NativeHelmReleaseHookArrayAbi
     {
         internal nint Items;
         internal nuint Length;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmChartSearchResultAbi
+    internal struct NativeHelmChartSearchResultAbi
     {
         internal nint Reference;
         internal nint ChartName;
@@ -591,35 +605,35 @@ internal static partial class HelmNativeInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmChartSearchResultArrayAbi
+    internal struct NativeHelmChartSearchResultArrayAbi
     {
         internal nint Items;
         internal nuint Length;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmReleaseArrayAbi
+    internal struct NativeHelmReleaseArrayAbi
     {
         internal nint Items;
         internal nuint Length;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmRepositoryAbi
+    internal struct NativeHelmRepositoryAbi
     {
         internal nint Name;
         internal nint Url;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmRepositoryArrayAbi
+    internal struct NativeHelmRepositoryArrayAbi
     {
         internal nint Items;
         internal nuint Length;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeHelmResponseAbi
+    internal struct NativeHelmResponseAbi
     {
         internal uint AbiVersion;
         internal int ResultKind;

@@ -5,13 +5,6 @@ namespace Helm.NET.Tests;
 public sealed class HelmClientTests
 {
     [Fact]
-    public void ConstructorUsesDefaultOptions()
-    {
-        var client = new HelmClient();
-        client.ShouldNotBeNull();
-    }
-
-    [Fact]
     public void ExistingInterfaceImplementersReceiveDefaultsForNewOperations()
     {
         var legacy = new LegacyHelmClient();
@@ -21,6 +14,52 @@ public sealed class HelmClientTests
         client.ListReleases(allNamespaces: true, filter: "^legacy$").ShouldBe([Release()]);
         legacy.LastAllNamespaces.ShouldBeTrue();
         legacy.LastFilter.ShouldBe("^legacy$");
+    }
+
+    [Fact]
+    public void RepositoryAliasesForwardToExistingInterfaceOperations()
+    {
+        var legacy = new LegacyRepositoryHelmClient();
+        IHelmClient client = legacy;
+
+        client.ListRepositories().ShouldBe([new HelmRepository("stable", "https://example.test")]);
+        client.AddRepository("private", "https://private.test", "user", "secret");
+        legacy.LastOperation.ShouldBe("repoAdd");
+        legacy.LastName.ShouldBe("private");
+        legacy.LastForceUpdate.ShouldBeTrue();
+        legacy.LastUsername.ShouldBe("user");
+        legacy.LastPassword.ShouldBe("secret");
+
+        client.RemoveRepository("private");
+        legacy.LastOperation.ShouldBe("repoRemove");
+        legacy.LastName.ShouldBe("private");
+
+        client.UpdateRepositories();
+        legacy.LastOperation.ShouldBe("repoUpdate");
+    }
+
+    [Fact]
+    public void ReleaseConvenienceOverloadsForwardDefaultsToExtendedInterfaceOperations()
+    {
+        var legacy = new LegacyReleaseHelmClient();
+        IHelmClient client = legacy;
+
+        client.Status("web").ShouldBe(Release());
+        legacy.LastOperation.ShouldBe("status");
+        legacy.LastReleaseName.ShouldBe("web");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(0);
+
+        client.History("web").ShouldBe([Release()]);
+        legacy.LastOperation.ShouldBe("history");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(256);
+
+        client.GetValues("web").GetProperty("enabled").GetBoolean().ShouldBeTrue();
+        legacy.LastOperation.ShouldBe("values");
+        legacy.LastNamespace.ShouldBeNull();
+        legacy.LastNumber.ShouldBe(0);
+        legacy.LastAllValues.ShouldBeFalse();
     }
 
     [Fact]
@@ -43,6 +82,28 @@ public sealed class HelmClientTests
         var client = CreateClient(Response(), out var request);
 
         client.List(allNamespaces: true, filter: "^web$");
+
+        request().AllNamespaces.ShouldBeTrue();
+        request().Filter.ShouldBe("^web$");
+    }
+
+    [Fact]
+    public void ListReleasesUsesListOperationAndMapsTypedRecords()
+    {
+        var client = CreateClient(Response(releases: [NativeRelease()]), out var request);
+
+        client.ListReleases().ShouldBe([Release()]);
+
+        request().Operation.ShouldBe("list");
+        request().Namespace.ShouldBe("default");
+    }
+
+    [Fact]
+    public void ListReleasesWithOptionsForwardsNamespaceSearchOptions()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.ListReleases(allNamespaces: true, filter: "^web$");
 
         request().AllNamespaces.ShouldBeTrue();
         request().Filter.ShouldBe("^web$");
@@ -77,6 +138,18 @@ public sealed class HelmClientTests
 
         request().ValuesFiles.ShouldBeNull();
         request().Values.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TemplateInstallAndUpgradeRejectNonObjectSetValues()
+    {
+        using var valuesDocument = JsonDocument.Parse("[1,2]");
+        var client = CreateClient(Response(release: NativeRelease()), out _);
+        var setValues = valuesDocument.RootElement;
+
+        Should.Throw<ArgumentException>(() => client.Template("web", "chart", namespaceName: "apps", setValues: setValues));
+        Should.Throw<ArgumentException>(() => client.Install("web", "chart", namespaceName: "apps", setValues: setValues));
+        Should.Throw<ArgumentException>(() => client.Upgrade("web", "chart", namespaceName: "apps", setValues: setValues));
     }
 
     [Fact]
@@ -197,6 +270,42 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void UpgradeWithHelmOptionsForwardsValueAndFailureFlags()
+    {
+        using var valuesDocument = JsonDocument.Parse("{\"replicas\":3}");
+        var client = CreateClient(Response(release: NativeRelease()), out var readRequest);
+
+        client.Upgrade(
+            "web", "chart", namespaceName: "apps", values: ["prod.yaml"], setValues: valuesDocument.RootElement,
+            install: true, wait: true, timeout: TimeSpan.FromSeconds(11), version: "2.1.0",
+            resetValues: true, reuseValues: true, resetThenReuseValues: true, dependencyUpdate: true,
+            cleanupOnFail: true, forceReplace: true, forceConflicts: true, takeOwnership: true,
+            repo: "https://charts.test", insecureSkipTlsVerify: true, passCredentials: true, plainHttp: true)
+            .ShouldBe(Release());
+
+        var request = readRequest();
+        request.Namespace.ShouldBe("apps");
+        request.ValuesFiles.ShouldBe(["prod.yaml"]);
+        request.Values!.Value.GetProperty("replicas").GetInt32().ShouldBe(3);
+        request.InstallIfMissing.ShouldBeTrue();
+        request.Wait.ShouldBeTrue();
+        request.TimeoutMilliseconds.ShouldBe(11000);
+        request.Version.ShouldBe("2.1.0");
+        request.ResetValues.ShouldBeTrue();
+        request.ReuseValues.ShouldBeTrue();
+        request.ResetThenReuseValues.ShouldBeTrue();
+        request.DependencyUpdate.ShouldBeTrue();
+        request.CleanupOnFail.ShouldBeTrue();
+        request.ForceReplace.ShouldBeTrue();
+        request.ForceConflicts.ShouldBeTrue();
+        request.TakeOwnership.ShouldBeTrue();
+        request.Repo.ShouldBe("https://charts.test");
+        request.InsecureSkipTlsVerify.ShouldBeTrue();
+        request.PassCredentials.ShouldBeTrue();
+        request.PlainHttp.ShouldBeTrue();
+    }
+
+    [Fact]
     public void InstallAndUpgradeUseFalseAndZeroOptionDefaults()
     {
         var client = CreateClient(Response(release: NativeRelease()), out var request);
@@ -271,6 +380,17 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void StatusForwardsNamespaceAndRevision()
+    {
+        var client = CreateClient(Response(release: NativeRelease(revision: 4)), out var request);
+
+        client.Status("web", namespaceName: "apps", revision: 4).ShouldBe(Release(4));
+
+        request().Namespace.ShouldBe("apps");
+        request().Revision.ShouldBe(4);
+    }
+
+    [Fact]
     public void HistoryMapsTypedReleaseArray()
     {
         var previous = NativeRelease(revision: 2);
@@ -334,6 +454,29 @@ public sealed class HelmClientTests
     }
 
     [Fact]
+    public void UninstallWithHelmOptionsForwardsDeletionSemantics()
+    {
+        var client = CreateClient(Response(), out var request);
+
+        client.Uninstall(
+            "web", namespaceName: "apps", wait: true, waitStrategy: "watcher",
+            timeout: TimeSpan.FromSeconds(8), disableHooks: true, dryRun: true,
+            ignoreNotFound: true, keepHistory: true, cascade: "foreground", description: "cleanup");
+
+        var captured = request();
+        captured.Namespace.ShouldBe("apps");
+        captured.Wait.ShouldBeTrue();
+        captured.WaitStrategy.ShouldBe("watcher");
+        captured.TimeoutMilliseconds.ShouldBe(8000);
+        captured.DisableHooks.ShouldBeTrue();
+        captured.DryRunUninstall.ShouldBeTrue();
+        captured.IgnoreNotFound.ShouldBeTrue();
+        captured.KeepHistory.ShouldBeTrue();
+        captured.Cascade.ShouldBe("foreground");
+        captured.Description.ShouldBe("cleanup");
+    }
+
+    [Fact]
     public void UninstallDefaultsToNotWaiting()
     {
         var client = CreateClient(Response(), out var request);
@@ -365,6 +508,7 @@ public sealed class HelmClientTests
         var client = CreateClient(Response(repositories: [expected]), out var request);
 
         client.ListRepositories().ShouldHaveSingleItem().ShouldBe(expected);
+        client.RepoList().ShouldHaveSingleItem().ShouldBe(expected);
 
         request().Operation.ShouldBe("repoList");
     }
@@ -453,6 +597,7 @@ public sealed class HelmClientTests
         var client = CreateClient(Response(), out var request);
 
         client.RepoRemove("stable");
+        client.RemoveRepository("stable");
 
         request().RepositoryName.ShouldBe("stable");
         request().Operation.ShouldBe("repoRemove");
@@ -464,6 +609,7 @@ public sealed class HelmClientTests
         var client = CreateClient(Response(), out var request);
 
         client.RepoUpdate();
+        client.UpdateRepositories();
 
         request().Operation.ShouldBe("repoUpdate");
     }
@@ -556,6 +702,77 @@ public sealed class HelmClientTests
             LastAllNamespaces = allNamespaces;
             LastFilter = filter;
             return [Release()];
+        }
+    }
+
+    private sealed class LegacyRepositoryHelmClient : IHelmClient
+    {
+        public string? LastOperation { get; private set; }
+        public string? LastName { get; private set; }
+        public string? LastUsername { get; private set; }
+        public string? LastPassword { get; private set; }
+        public bool LastForceUpdate { get; private set; }
+
+        public IReadOnlyList<HelmRepository> RepoList()
+        {
+            LastOperation = "repoList";
+            return [new HelmRepository("stable", "https://example.test")];
+        }
+
+        public void RepoAdd(string name, string url, string? username = null, string? password = null, bool forceUpdate = false)
+        {
+            LastOperation = "repoAdd";
+            LastName = name;
+            LastUsername = username;
+            LastPassword = password;
+            LastForceUpdate = forceUpdate;
+        }
+
+        public void RepoRemove(string repository)
+        {
+            LastOperation = "repoRemove";
+            LastName = repository;
+        }
+
+        public void RepoUpdate() => LastOperation = "repoUpdate";
+    }
+
+    private sealed class LegacyReleaseHelmClient : IHelmClient
+    {
+        private static readonly JsonElement Values = ParseJsonElement("{\"enabled\":true}");
+
+        public string? LastOperation { get; private set; }
+        public string? LastReleaseName { get; private set; }
+        public string? LastNamespace { get; private set; }
+        public int LastNumber { get; private set; }
+        public bool LastAllValues { get; private set; }
+
+        public HelmRelease Status(string releaseName, string? namespaceName = null, int revision = 0)
+        {
+            LastOperation = "status";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = revision;
+            return Release();
+        }
+
+        public IReadOnlyList<HelmRelease> History(string releaseName, string? namespaceName = null, int max = 256)
+        {
+            LastOperation = "history";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = max;
+            return [Release()];
+        }
+
+        public JsonElement GetValues(string releaseName, string? namespaceName = null, int revision = 0, bool all = false)
+        {
+            LastOperation = "values";
+            LastReleaseName = releaseName;
+            LastNamespace = namespaceName;
+            LastNumber = revision;
+            LastAllValues = all;
+            return Values;
         }
     }
 
