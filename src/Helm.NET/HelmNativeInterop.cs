@@ -156,7 +156,7 @@ internal static partial class HelmNativeInterop
         {
             using var input = new NativeRequestBuffer();
             var valuesJson = request.Values is { } values && values.ValueKind != JsonValueKind.Undefined
-                ? JsonSerializer.Serialize(values, NativeJsonContext.Default.JsonElement)
+                ? values.GetRawText()
                 : null;
             var nativeRequest = new NativeHelmRequestAbi
             {
